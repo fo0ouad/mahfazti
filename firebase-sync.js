@@ -96,6 +96,24 @@ onAuthStateChanged(auth, (user) => {
   window.render();
 });
 
+window.mahfaztiSidebarFooterHTML = function () {
+  if (!currentUser) {
+    return `
+      <div class="sidebar-link" style="flex:1" onclick="mahfaztiSignIn()">
+        ${window.icon("cloud", window.COLORS.sub, 18)}<span>تسجيل الدخول لحفظ بياناتك</span>
+      </div>`;
+  }
+  const name = currentUser.displayName || currentUser.email || "متصل";
+  const initial = name.trim().charAt(0).toUpperCase();
+  return `
+    <div class="sidebar-avatar">${window.esc(initial)}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13px;font-weight:700;color:${window.COLORS.ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${window.esc(currentUser.displayName || "")}</div>
+      <div style="font-size:11px;color:${window.COLORS.sub};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${window.esc(currentUser.email || "")}</div>
+    </div>
+    <button class="btn btn-ghost" onclick="mahfaztiSignOutConfirm()" title="تسجيل الخروج">${window.icon("x", window.COLORS.sub, 13)}</button>`;
+};
+
 window.mahfaztiSignIn = async function () {
   try {
     await signInWithPopup(auth, provider);

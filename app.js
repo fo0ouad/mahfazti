@@ -949,6 +949,8 @@ function bottomNavHTML() {
     </div>`;
 }
 
+const TAB_TITLES = { overview: "نظرة عامة", categories: "الفئات", reports: "التقارير", debts: "الديون", history: "السجل", savings: "أهداف الادخار" };
+
 function render() {
   if (window.__mode === "groceries" && typeof renderGroceries === "function") { renderGroceries(); return; }
   const app = document.getElementById("app");
@@ -958,13 +960,26 @@ function render() {
   else if (state.tab === "reports") body = reportsHTML();
   else if (state.tab === "debts") body = debtsHTML();
   else if (state.tab === "history") body = historyHTML();
+  else if (state.tab === "savings") body = savingsGoalsHTML();
 
+  const atCurrentCycle = state.month >= cycleNow();
   app.innerHTML = `
-    ${headerHTML()}
-    <div class="content">${body}</div>
-    <div class="fab-row">
-      <button class="fab-secondary" onclick="openSmsSheet()">${icon("clipboard", "#fff", 15)} من رسالة بنكية</button>
-      <button class="fab" onclick="openExpenseSheet()">${icon("plus", COLORS.ink, 16)} إضافة مصروف</button>
+    ${appSidebarHTML()}
+    <div class="app-main">
+      ${headerHTML()}
+      <div class="page-title-row">
+        <div class="page-title">${TAB_TITLES[state.tab] || ""}</div>
+        <div class="month-nav">
+          <button onclick="changeMonth(-1)">${icon("chevronRight", COLORS.ink, 16)}</button>
+          <span class="month-label">${monthLabel(state.month)}</span>
+          <button onclick="changeMonth(1)" ${atCurrentCycle ? "disabled" : ""}>${icon("chevronLeft", COLORS.ink, 16)}</button>
+        </div>
+      </div>
+      <div class="fab-row">
+        <button class="fab-secondary" onclick="openSmsSheet()">${icon("clipboard", "#fff", 15)} من رسالة بنكية</button>
+        <button class="fab" onclick="openExpenseSheet()">${icon("plus", COLORS.ink, 16)} إضافة مصروف</button>
+      </div>
+      <div class="content">${body}</div>
     </div>
     ${bottomNavHTML()}
   `;
@@ -972,6 +987,54 @@ function render() {
 
 function setTab(id) { state.tab = id; render(); }
 function changeMonth(delta) { state.month = shiftMonth(state.month, delta); render(); }
+
+/* ---------------- desktop sidebar (hidden on mobile via CSS) ---------------- */
+function sidebarLinkHTML(l, active, section) {
+  const accent = section === "grocery" ? COLORS.secondary : COLORS.primary;
+  const tint = section === "grocery" ? COLORS.secondaryTint : COLORS.primaryTint;
+  const mode = section === "grocery" ? "groceries" : "budget";
+  return `
+    <div class="sidebar-link" style="background:${active ? tint : "transparent"};color:${active ? accent : COLORS.ink};font-weight:${active ? 700 : 500}" onclick='jumpTo(${JSON.stringify(mode)}, ${JSON.stringify(l.tab)})'>
+      ${icon(l.icon, active ? accent : COLORS.sub, 16)}<span>${l.label}</span>
+    </div>`;
+}
+function appSidebarHTML() {
+  const mode = window.__mode === "groceries" ? "groceries" : "budget";
+  const groceryActiveTab = mode === "groceries" && typeof groceryTab !== "undefined" ? groceryTab : null;
+  const budgetLinks = [
+    { tab: "overview", label: "نظرة عامة", icon: "home" },
+    { tab: "categories", label: "الفئات", icon: "shoppingBag" },
+    { tab: "debts", label: "الديون", icon: "creditCard" },
+    { tab: "savings", label: "أهداف الادخار", icon: "piggyBank" },
+    { tab: "reports", label: "تقارير", icon: "barChart" },
+    { tab: "history", label: "السجل", icon: "receipt" },
+  ];
+  const groceryLinks = [
+    { tab: "overview", label: "نظرة عامة", icon: "home" },
+    { tab: "products", label: "المنتجات", icon: "shoppingBasket" },
+    { tab: "history", label: "سجل المشتريات", icon: "receipt" },
+  ];
+  return `
+    <div class="app-sidebar">
+      <div class="sidebar-brand">${icon("wallet", COLORS.primary, 22)} محفظتي</div>
+      <div class="sidebar-section-label">محفظتي</div>
+      ${budgetLinks.map((l) => sidebarLinkHTML(l, mode === "budget" && state.tab === l.tab, "budget")).join("")}
+      <div class="sidebar-section-label">بقالتي</div>
+      ${groceryLinks.map((l) => sidebarLinkHTML(l, mode === "groceries" && groceryActiveTab === l.tab, "grocery")).join("")}
+      <div class="sidebar-footer">${typeof mahfaztiSidebarFooterHTML === "function" ? mahfaztiSidebarFooterHTML() : ""}</div>
+    </div>`;
+}
+function jumpTo(mode, tab) {
+  if (mode === "groceries") {
+    window.__mode = "groceries";
+    if (typeof groceryTab !== "undefined") groceryTab = tab;
+    if (typeof renderGroceries === "function") renderGroceries();
+  } else {
+    window.__mode = "budget";
+    state.tab = tab;
+    render();
+  }
+}
 
 /* ---------------- sheets (modals) ---------------- */
 function closeSheet() {

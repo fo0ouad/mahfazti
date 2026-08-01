@@ -370,6 +370,8 @@ function exportGroceryCSV() {
   URL.revokeObjectURL(url);
 }
 
+const GROCERY_TAB_TITLES = { overview: "نظرة عامة", products: "المنتجات", history: "سجل المشتريات" };
+
 function renderGroceries() {
   const app = document.getElementById("app");
   let body = "";
@@ -377,11 +379,17 @@ function renderGroceries() {
   else if (groceryTab === "products") body = groceryProductsHTML();
   else if (groceryTab === "history") body = groceryHistoryHTML();
   app.innerHTML = `
-    ${groceryHeaderHTML()}
-    <div class="content">${body}</div>
-    <div class="fab-row">
-      <button class="fab-secondary" onclick="openGroceryImportSheet()">${icon("clipboard", "#fff", 15)} استيراد قائمة</button>
-      <button class="fab" style="background:${COLORS.secondary};color:#fff" onclick="openAddGroceryItemSheet()">${icon("plus", "#fff", 16)} إضافة عنصر</button>
+    ${appSidebarHTML()}
+    <div class="app-main">
+      ${groceryHeaderHTML()}
+      <div class="page-title-row">
+        <div class="page-title">${GROCERY_TAB_TITLES[groceryTab] || ""}</div>
+      </div>
+      <div class="fab-row">
+        <button class="fab-secondary" onclick="openGroceryImportSheet()">${icon("clipboard", "#fff", 15)} استيراد قائمة</button>
+        <button class="fab" style="background:${COLORS.secondary};color:#fff" onclick="openAddGroceryItemSheet()">${icon("plus", "#fff", 16)} إضافة عنصر</button>
+      </div>
+      <div class="content">${body}</div>
     </div>
     ${groceryNavHTML()}
   `;
