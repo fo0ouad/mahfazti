@@ -152,7 +152,7 @@ function categoryWeeklyStatus(cat, key) {
 
 /* ---------------- state ---------------- */
 let state = {
-  data: { categories: DEFAULT_CATEGORIES, expenses: [], debts: [], settings: DEFAULT_SETTINGS, merchantMap: {} },
+  data: { categories: DEFAULT_CATEGORIES, expenses: [], debts: [], settings: DEFAULT_SETTINGS, merchantMap: {}, savingsGoals: [] },
   tab: "overview",
   month: null,
 };
@@ -168,6 +168,7 @@ function loadData() {
         debts: parsed.debts || [],
         settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) },
         merchantMap: parsed.merchantMap || {},
+        savingsGoals: parsed.savingsGoals || [],
       };
     }
   } catch (e) { /* keep defaults */ }
@@ -227,6 +228,26 @@ function deleteDebt(id) {
 function payDebt(debtId, payment) {
   state.data.debts = state.data.debts.map((d) => d.id === debtId ? { ...d, payments: [...(d.payments || []), payment] } : d);
   saveData();
+}
+function addSavingsGoal(goal) { state.data.savingsGoals.unshift({ id: uid(), contributions: [], ...goal }); saveData(); }
+function deleteSavingsGoal(id) {
+  if (!confirm("تحذف هذا الهدف؟")) return;
+  state.data.savingsGoals = state.data.savingsGoals.filter((g) => g.id !== id);
+  saveData(); render();
+}
+function addGoalContribution(goalId, contribution) {
+  state.data.savingsGoals = state.data.savingsGoals.map((g) => g.id === goalId ? { ...g, contributions: [...(g.contributions || []), contribution] } : g);
+  saveData();
+}
+function goalSaved(g) { return (g.contributions || []).reduce((s, c) => s + c.amount, 0); }
+function goalMonthlyNeeded(g) {
+  if (!g.targetDate) return null;
+  const remaining = g.targetAmount - goalSaved(g);
+  if (remaining <= 0) return 0;
+  const today = new Date(todayISO() + "T00:00:00");
+  const target = new Date(g.targetDate + "T00:00:00");
+  const monthsLeft = Math.max(1, Math.ceil((target - today) / (30 * 86400000)));
+  return remaining / monthsLeft;
 }
 
 /* ---------------- bank SMS parsing + merchant memory ---------------- */
@@ -300,6 +321,7 @@ function progressBar(pct, color) {
   const barColor = pct > 100 ? COLORS.danger : color;
   return `<div class="progress"><div style="width:${clamped}%;background:${barColor}"></div></div>`;
 }
+function budgetUsageColor(pct, baseColor) { return pct >= 80 && pct <= 100 ? COLORS.warn : baseColor; }
 
 function gaugeHTML(spent, budget) {
   const overPct = budget > 0 ? (spent / budget) * 100 : 0;
@@ -417,6 +439,7 @@ function overviewHTML() {
     ${state.data.categories.map((c) => {
       const cs = spentMap[c.id] || 0;
       const pct = c.budget > 0 ? (cs / c.budget) * 100 : 0;
+      const nearLimit = c.budget > 0 && pct >= 80 && pct <= 100;
       return `
         <div class="cat-card">
           <div class="row">
@@ -424,9 +447,9 @@ function overviewHTML() {
             <div style="flex:1;min-width:0">
               <div class="cat-top">
                 <span class="cat-name">${esc(c.name)}</span>
-                <span class="cat-amounts" style="${pct > 100 ? `color:${COLORS.danger}` : ""}">${fmt(cs)} / ${fmt(c.budget)}</span>
+                <span class="cat-amounts" style="${pct > 100 ? `color:${COLORS.danger}` : nearLimit ? `color:${COLORS.warn}` : ""}">${fmt(cs)} / ${fmt(c.budget)}${nearLimit ? " ⚠️" : ""}</span>
               </div>
-              ${progressBar(pct, c.color)}
+              ${progressBar(pct, budgetUsageColor(pct, c.color))}
             </div>
           </div>
         </div>`;
@@ -532,6 +555,7 @@ function openBudgetSetupSheet() {
   const s = state.data.settings;
   const body = `
     <div class="field"><label>الميزانية الشهرية الكاملة (ر.س)</label><input id="bs-overall" type="number" inputmode="decimal" value="${s.overallBudget || ""}" oninput="updateBudgetSetupSummary()" placeholder="مثال: 6000"/></div>
+    <button type="button" class="btn btn-gold" style="margin:-8px 0 16px" onclick="suggest502030()">✨ اقترح لي توزيع 50/30/20</button>
     <div class="field"><label>مخصص لسداد الديون شهرياً (ر.س)</label><input id="bs-debt" type="number" inputmode="decimal" value="${s.debtBudget || ""}" oninput="updateBudgetSetupSummary()" placeholder="0"/></div>
     <div class="field"><label>مخصص للتوفير شهرياً (ر.س)</label><input id="bs-savings" type="number" inputmode="decimal" value="${s.savingsBudget || ""}" oninput="updateBudgetSetupSummary()" placeholder="0"/></div>
     <div id="bs-summary" style="font-size:13px;color:${COLORS.sub};background:${COLORS.paper};border-radius:12px;padding:12px;margin-bottom:16px;line-height:1.9"></div>
@@ -550,6 +574,13 @@ function openBudgetSetupSheet() {
   openSheetShell("إعداد الميزانية الكاملة", body);
   updateBudgetSetupSummary();
 }
+function suggest502030() {
+  const overall = parseFloat(document.getElementById("bs-overall").value) || 0;
+  if (!overall) { alert("أدخل الميزانية الشهرية الكاملة أولاً"); return; }
+  document.getElementById("bs-debt").value = Math.round(overall * 0.1);
+  document.getElementById("bs-savings").value = Math.round(overall * 0.1);
+  updateBudgetSetupSummary();
+}
 function updateBudgetSetupSummary() {
   const overall = parseFloat(document.getElementById("bs-overall").value) || 0;
   const debt = parseFloat(document.getElementById("bs-debt").value) || 0;
@@ -559,6 +590,7 @@ function updateBudgetSetupSummary() {
   const remaining = overall - allocated;
   const el = document.getElementById("bs-summary");
   el.innerHTML = `
+    ${overall > 0 ? `بحسب قاعدة 50/30/20: خصص للفئات (ضروريات وكماليات) حتى ${fmt(overall * 0.8)} ر.س (٪80)، و${fmt(overall * 0.1)} ر.س للديون و${fmt(overall * 0.1)} ر.س للتوفير (٪10 لكل وحد)<br/><br/>` : ""}
     ميزانية الفئات الحالية: <strong>${fmt(catAlloc)} ر.س</strong><br/>
     إجمالي الموزّع (فئات + ديون + توفير): <strong>${fmt(allocated)} ر.س</strong><br/>
     ${remaining >= 0
@@ -590,6 +622,7 @@ function categoriesHTML() {
       const cs = spentMap[c.id] || 0;
       const pct = c.budget > 0 ? (cs / c.budget) * 100 : 0;
       const remaining = c.budget - cs;
+      const nearLimit = c.budget > 0 && pct >= 80 && pct <= 100;
       const ofTotal = overallVal > 0 ? ` · ${fmt((c.budget / overallVal) * 100)}% من الإجمالي` : "";
       return `
         <div class="cat-card">
@@ -597,18 +630,96 @@ function categoriesHTML() {
             ${iconBadge(c.icon, c.color, 16)}
             <div style="flex:1">
               <div class="cat-name">${esc(c.name)}</div>
-              <div class="cat-amounts" style="${remaining < 0 ? `color:${COLORS.danger}` : ""}">
-                ${remaining >= 0 ? `متبقي ${fmt(remaining)} ر.س` : `تجاوز ${fmt(-remaining)} ر.س`}${ofTotal}
+              <div class="cat-amounts" style="${remaining < 0 ? `color:${COLORS.danger}` : nearLimit ? `color:${COLORS.warn}` : ""}">
+                ${remaining >= 0 ? `متبقي ${fmt(remaining)} ر.س` : `تجاوز ${fmt(-remaining)} ر.س`}${nearLimit ? " ⚠️ قاربت الحد" : ""}${ofTotal}
               </div>
             </div>
             <button class="btn btn-ghost" onclick='openCategorySheet(${JSON.stringify(c.id)})'>${icon("pencil", COLORS.sub, 13)}</button>
             <button class="btn btn-ghost" onclick='deleteCategory(${JSON.stringify(c.id)})'>${icon("trash", COLORS.danger, 13)}</button>
           </div>
-          ${progressBar(pct, c.color)}
+          ${progressBar(pct, budgetUsageColor(pct, c.color))}
           ${weeklyMiniHTML(c)}
         </div>`;
     }).join("")}
+    ${savingsGoalsHTML()}
   `;
+}
+
+function savingsGoalsHTML() {
+  const goals = state.data.savingsGoals || [];
+  return `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px">
+      <div class="section-title" style="margin:0">أهداف التوفير</div>
+      <button class="btn btn-primary" onclick="openSavingsGoalSheet()">${icon("plus", "#fff", 14)} هدف جديد</button>
+    </div>
+    ${!goals.length ? `<div class="empty-state">لا يوجد أهداف — أضف هدف لمناسبة أو مصروف موسمي زي رمضان أو تجديد الإيجار</div>` : ""}
+    ${goals.map((g) => {
+      const saved = goalSaved(g);
+      const remaining = g.targetAmount - saved;
+      const pctVal = g.targetAmount > 0 ? (saved / g.targetAmount) * 100 : 0;
+      const monthly = goalMonthlyNeeded(g);
+      return `
+        <div class="cat-card">
+          <div class="row" style="margin-bottom:8px">
+            ${iconBadge("piggyBank", COLORS.success, 16)}
+            <div style="flex:1">
+              <div class="cat-name">${esc(g.name)}</div>
+              <div class="cat-amounts">جمعت ${fmt(saved)} من ${fmt(g.targetAmount)} ر.س${g.targetDate ? ` · بحلول ${g.targetDate}` : ""}</div>
+            </div>
+            <button class="btn btn-ghost" onclick='deleteSavingsGoal(${JSON.stringify(g.id)})'>${icon("trash", COLORS.danger, 13)}</button>
+          </div>
+          ${progressBar(pctVal, COLORS.success)}
+          ${monthly != null && monthly > 0 ? `<div style="font-size:12px;color:${COLORS.sub};margin-top:8px">تحتاج تجمع تقريباً ${fmt(monthly)} ر.س شهرياً عشان توصل الهدف في وقته</div>` : ""}
+          ${remaining > 0
+            ? `<button class="btn" style="width:100%;justify-content:center;margin-top:10px;background:${COLORS.paper};color:${COLORS.ink};padding:9px;border-radius:12px" onclick='openGoalContributionSheet(${JSON.stringify(g.id)})'>إضافة مبلغ للهدف</button>`
+            : `<div style="text-align:center;margin-top:10px;color:${COLORS.success};font-weight:700;font-size:13px">🎉 وصلت الهدف</div>`}
+        </div>`;
+    }).join("")}
+  `;
+}
+function openSavingsGoalSheet() {
+  const body = `
+    <div class="field"><label>اسم الهدف</label><input id="f-goalname" type="text" placeholder="مثال: رمضان / تجديد الإقامة / الإيجار"/></div>
+    <div class="field"><label>المبلغ المستهدف (ر.س)</label><input id="f-goaltarget" type="number" inputmode="decimal" placeholder="0" oninput="updateGoalHint()"/></div>
+    <div class="field"><label>تاريخ الاستحقاق (اختياري)</label><input id="f-goaldate" type="date" oninput="updateGoalHint()"/></div>
+    <div id="goal-monthly-hint" style="font-size:12px;color:${COLORS.sub};margin:-8px 0 16px"></div>
+    <button class="btn btn-primary btn-block" onclick="submitSavingsGoal()">${icon("check", "#fff", 16)} حفظ الهدف</button>
+  `;
+  openSheetShell("هدف توفير جديد", body);
+}
+function updateGoalHint() {
+  const target = parseFloat(document.getElementById("f-goaltarget").value) || 0;
+  const dateVal = document.getElementById("f-goaldate").value;
+  const hint = document.getElementById("goal-monthly-hint");
+  if (!target || !dateVal) { hint.textContent = ""; return; }
+  const today = new Date(todayISO() + "T00:00:00");
+  const targetDate = new Date(dateVal + "T00:00:00");
+  const monthsLeft = Math.max(1, Math.ceil((targetDate - today) / (30 * 86400000)));
+  hint.textContent = `تحتاج تجمع تقريباً ${fmt(target / monthsLeft)} ر.س شهرياً عشان توصل الهدف`;
+}
+function submitSavingsGoal() {
+  const name = document.getElementById("f-goalname").value.trim();
+  const targetAmount = parseFloat(document.getElementById("f-goaltarget").value);
+  const targetDate = document.getElementById("f-goaldate").value || null;
+  if (!name || !targetAmount || targetAmount <= 0) { alert("أدخل اسم الهدف ومبلغ صحيح"); return; }
+  addSavingsGoal({ name, targetAmount, targetDate });
+  closeSheet(); render();
+}
+function openGoalContributionSheet(goalId) {
+  const g = state.data.savingsGoals.find((x) => x.id === goalId);
+  const remaining = g.targetAmount - goalSaved(g);
+  const body = `
+    <div style="font-size:14px;color:${COLORS.sub};margin-bottom:16px">باقي عشان توصل الهدف: ${fmt(remaining)} ر.س</div>
+    <div class="field"><label>المبلغ (ر.س)</label><input id="f-goalamt" type="number" inputmode="decimal" placeholder="0"/></div>
+    <button class="btn btn-block" style="background:${COLORS.success};color:#fff" onclick='submitGoalContribution(${JSON.stringify(goalId)})'>${icon("check", "#fff", 16)} إضافة للهدف</button>
+  `;
+  openSheetShell(`إضافة لـ: ${g.name}`, body);
+}
+function submitGoalContribution(goalId) {
+  const amount = parseFloat(document.getElementById("f-goalamt").value);
+  if (!amount || amount <= 0) { alert("أدخل مبلغ صحيح"); return; }
+  addGoalContribution(goalId, { amount, date: todayISO() });
+  closeSheet(); render();
 }
 
 function debtBudgetCardHTML() {
@@ -630,7 +741,7 @@ function debtBudgetCardHTML() {
         <span>سددت ${fmt(paid)} من ${fmt(budget)} ر.س</span>
         <span style="color:${remaining < 0 ? COLORS.danger : COLORS.sub}">${remaining >= 0 ? `باقي ${fmt(remaining)}` : `تجاوزت ${fmt(-remaining)}`}</span>
       </div>
-      ${progressBar(pctVal, remaining < 0 ? COLORS.danger : COLORS.gold)}
+      ${progressBar(pctVal, remaining < 0 ? COLORS.danger : budgetUsageColor(pctVal, COLORS.gold))}
     </div>`;
 }
 function debtsHTML() {
@@ -729,7 +840,7 @@ function monthReportHTML() {
           ${iconBadge(c.icon, c.color, 14)}
           <div style="flex:1">
             <div class="cat-top"><span class="cat-name">${esc(c.name)}</span><span class="cat-amounts">${fmt(c.spent)} / ${fmt(c.budget)}</span></div>
-            ${progressBar(c.budget > 0 ? (c.spent / c.budget) * 100 : 0, c.color)}
+            ${progressBar(c.budget > 0 ? (c.spent / c.budget) * 100 : 0, budgetUsageColor(c.budget > 0 ? (c.spent / c.budget) * 100 : 0, c.color))}
           </div>
         </div>
       </div>`).join("")}
