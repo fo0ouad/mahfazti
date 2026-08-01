@@ -1242,7 +1242,27 @@ function render() {
   `;
 }
 
-function setTab(id) { state.tab = id; render(); }
+const UI_STATE_KEY = "mahfazti-ui-state-v1";
+function saveUiState() {
+  try {
+    localStorage.setItem(UI_STATE_KEY, JSON.stringify({
+      tab: state.tab,
+      mode: window.__mode || "budget",
+      groceryTab: typeof groceryTab !== "undefined" ? groceryTab : "overview",
+    }));
+  } catch (e) { /* ignore */ }
+}
+function restoreUiState() {
+  try {
+    const raw = localStorage.getItem(UI_STATE_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (s.tab) state.tab = s.tab;
+    if (s.mode) window.__mode = s.mode;
+    if (s.groceryTab && typeof groceryTab !== "undefined") groceryTab = s.groceryTab;
+  } catch (e) { /* ignore */ }
+}
+function setTab(id) { state.tab = id; saveUiState(); render(); }
 function changeMonth(delta) { state.month = shiftMonth(state.month, delta); render(); }
 
 /* ---------------- desktop sidebar (hidden on mobile via CSS) ---------------- */
@@ -1288,10 +1308,12 @@ function jumpTo(mode, tab) {
   if (mode === "groceries") {
     window.__mode = "groceries";
     if (typeof groceryTab !== "undefined") groceryTab = tab;
+    saveUiState();
     if (typeof renderGroceries === "function") renderGroceries();
   } else {
     window.__mode = "budget";
     state.tab = tab;
+    saveUiState();
     render();
   }
 }

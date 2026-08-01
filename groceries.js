@@ -99,10 +99,12 @@ function importGrocerySeed() {
 
 function enterGroceries() {
   window.__mode = "groceries";
+  saveUiState();
   renderGroceries();
 }
 function exitGroceries() {
   window.__mode = "budget";
+  saveUiState();
   render();
 }
 
@@ -207,7 +209,7 @@ function groceryNavHTML() {
         </button>`).join("")}
     </div>`;
 }
-function setGroceryTab(id) { groceryTab = id; renderGroceries(); }
+function setGroceryTab(id) { groceryTab = id; saveUiState(); renderGroceries(); }
 
 function groceryBudgetCardHTML(spent) {
   const budget = groceryData.settings.monthlyBudget || 0;
@@ -500,3 +502,5 @@ function submitGroceryImport() {
 /* ---------------- init ---------------- */
 loadGroceryData();
 window.__mode = window.__mode || "budget";
+restoreUiState(); // app.js already rendered once with defaults before this file finished loading; restore the real tab/mode and re-render
+if (window.__mode === "groceries") renderGroceries(); else render();

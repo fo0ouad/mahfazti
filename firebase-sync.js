@@ -4,7 +4,7 @@
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import {
-  getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
+  getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
   getFirestore, doc, getDoc, setDoc, serverTimestamp,
@@ -57,13 +57,56 @@ function applyRemoteData(cloud) {
   window.render();
 }
 
+/* union-merge, never destructive: combines both sides instead of picking a "winner" that
+   silently overwrites the other. A previous "cloud vs local, pick one" version could (and did)
+   push one device's data over the other's in Firestore, permanently losing whatever only
+   existed on the losing side. */
+function mergeById(localArr, cloudArr, mergeSub) {
+  const map = new Map();
+  (localArr || []).forEach((item) => item && item.id && map.set(item.id, item));
+  (cloudArr || []).forEach((item) => {
+    if (!item || !item.id) return;
+    const existing = map.get(item.id);
+    map.set(item.id, existing && mergeSub ? mergeSub(existing, item) : item);
+  });
+  return Array.from(map.values());
+}
+function mergeSubList(localSub, cloudSub) {
+  const seen = new Set();
+  const out = [];
+  [...(localSub || []), ...(cloudSub || [])].forEach((entry) => {
+    const key = entry.id || JSON.stringify(entry);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(entry);
+  });
+  return out;
+}
+function mergeBudgetState(local, cloud) {
+  local = local || {}; cloud = cloud || {};
+  return {
+    categories: (cloud.categories && cloud.categories.length) ? cloud.categories : (local.categories || []),
+    expenses: mergeById(local.expenses, cloud.expenses),
+    debts: mergeById(local.debts, cloud.debts, (l, c) => ({ ...l, ...c, payments: mergeSubList(l.payments, c.payments) })),
+    savingsGoals: mergeById(local.savingsGoals, cloud.savingsGoals, (l, c) => ({ ...l, ...c, contributions: mergeSubList(l.contributions, c.contributions) })),
+    settings: { ...(local.settings || {}), ...(cloud.settings || {}) },
+    merchantMap: { ...(local.merchantMap || {}), ...(cloud.merchantMap || {}) },
+  };
+}
+function mergeGroceryState(local, cloud) {
+  local = local || {}; cloud = cloud || {};
+  return {
+    items: mergeById(local.items, cloud.items),
+    settings: { ...(local.settings || {}), ...(cloud.settings || {}) },
+  };
+}
+
 const SYNC_RESOLVED_KEY = "mahfazti-sync-resolved-v1";
 async function handleSignedIn(user) {
   currentUser = user;
   // Firebase restores the signed-in session on every page load, which re-fires this same
-  // handler — the merge-conflict check below must only ever run once per (device, account),
-  // the first time this device links to this account. Otherwise the confirm() dialog nags
-  // on every single reload forever.
+  // handler — the one-time merge below must only ever run once per (device, account), the
+  // first time this device links to this account, or it'd redo the merge on every reload.
   if (localStorage.getItem(SYNC_RESOLVED_KEY) === user.uid) {
     window.render();
     return;
@@ -79,20 +122,15 @@ async function handleSignedIn(user) {
   }
   if (snap.exists()) {
     const cloud = snap.data();
-    const local = window.__getBudgetState();
-    const localGroceries = window.__getGroceryState();
-    const localHasData = (local.expenses && local.expenses.length) || (localGroceries.items && localGroceries.items.length);
-    if (localHasData) {
-      const useCloud = confirm(
-        "عندك بيانات محفوظة بالسحابة من قبل، وبرضو عندك بيانات على هذا الجهاز.\n\n" +
-        "موافق = حمّل نسخة السحابة (وتفقد بيانات هذا الجهاز اللي ما تزامنت).\n" +
-        "إلغاء = ارفع بيانات هذا الجهاز فوق نسخة السحابة."
-      );
-      if (useCloud) applyRemoteData(cloud);
-      else await pushToCloud();
-    } else {
-      applyRemoteData(cloud);
-    }
+    const mergedBudget = mergeBudgetState(window.__getBudgetState(), cloud.budget);
+    const mergedGroceries = mergeGroceryState(window.__getGroceryState(), cloud.groceries);
+    applyingRemote = true;
+    window.__setBudgetState(mergedBudget);
+    window.__setGroceryState(mergedGroceries);
+    window.saveData();
+    if (typeof window.saveGroceryData === "function") window.saveGroceryData();
+    applyingRemote = false;
+    await pushToCloud(); // write the merged union back up so the cloud copy has everything too
   } else {
     await pushToCloud();
   }
@@ -142,12 +180,16 @@ window.mahfaztiSettingsSectionHTML = function () {
 };
 
 window.mahfaztiSignIn = async function () {
+  // signInWithPopup is unreliable on mobile browsers (blocked popups, orphaned tabs, no clear
+  // way back to the app) — redirect navigates away and back instead, which mobile handles
+  // properly. onAuthStateChanged below picks up the result once the page reloads.
   try {
-    await signInWithPopup(auth, provider);
+    await signInWithRedirect(auth, provider);
   } catch (e) {
     alert("تعذر تسجيل الدخول: " + (e && e.message ? e.message : e));
   }
 };
+getRedirectResult(auth).catch((e) => console.error("mahfazti: redirect sign-in failed", e));
 window.mahfaztiSignOut = async function () {
   await signOut(auth);
 };
