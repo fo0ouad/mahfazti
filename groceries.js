@@ -341,7 +341,7 @@ function groceryHistoryHTML() {
   return `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px">
       <div class="section-title" style="margin:0">كل المشتريات</div>
-      <button class="btn btn-gold" onclick="exportGroceryCSV()">${icon("download", COLORS.ink, 14)} تصدير CSV</button>
+      <button class="btn btn-gold" onclick="exportGroceryCSV()">${icon("download", "#fff", 14)} تصدير CSV</button>
     </div>
     ${!all.length ? `<div class="empty-state">ما فيه عمليات مسجلة بعد</div>` : ""}
     ${all.map((it) => `

@@ -91,6 +91,63 @@ function fmt(n) { return new Intl.NumberFormat("en-US", { maximumFractionDigits:
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 function esc(str) { return String(str ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
+/* ---------------- streak (any day you logged an expense or a grocery item) ---------------- */
+function dateAddDays(iso, delta) {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+function activeDatesSet() {
+  const dates = new Set(state.data.expenses.map((e) => e.date));
+  if (typeof groceryData !== "undefined" && groceryData.items) groceryData.items.forEach((it) => dates.add(it.date));
+  return dates;
+}
+function loggedToday() { return activeDatesSet().has(todayISO()); }
+function currentStreak() {
+  const dates = activeDatesSet();
+  let cursor = todayISO();
+  if (!dates.has(cursor)) cursor = dateAddDays(cursor, -1);
+  let streak = 0;
+  while (dates.has(cursor)) { streak++; cursor = dateAddDays(cursor, -1); }
+  return streak;
+}
+function bestStreak() {
+  const dates = [...activeDatesSet()].sort();
+  let best = 0, run = 0, prev = null;
+  for (const d of dates) {
+    run = prev && dateAddDays(prev, 1) === d ? run + 1 : 1;
+    if (run > best) best = run;
+    prev = d;
+  }
+  return best;
+}
+function streakBadgeHTML() {
+  const streak = currentStreak();
+  if (streak <= 0) return "";
+  return `<span style="display:inline-flex;align-items:center;gap:3px;font-size:12px;font-weight:700;color:${COLORS.warn};background:${COLORS.warnBg};padding:3px 9px;border-radius:999px">🔥 ${streak}</span>`;
+}
+function streakCardHTML() {
+  const streak = currentStreak();
+  const best = bestStreak();
+  const today = loggedToday();
+  const message = today
+    ? "سجلت اليوم — استمر على نفس الوتيرة!"
+    : streak > 0
+      ? "سجّل مصروف أو عنصر بقالة اليوم قبل ما تفقد سلسلتك 😬"
+      : "سجّل أول عملية اليوم وابدأ سلسلتك";
+  return `
+    <div class="card" style="display:flex;align-items:center;gap:14px">
+      <div style="font-size:32px;line-height:1;${streak > 0 ? "" : "filter:grayscale(1);opacity:.4"}">🔥</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:baseline;gap:6px">
+          <span style="font-family:'Cairo',sans-serif;font-weight:800;font-size:22px">${streak}</span>
+          <span style="font-size:13px;color:${COLORS.sub}">يوم متتالي${best > streak ? ` · أفضل رقم ${best} يوم` : ""}</span>
+        </div>
+        <div style="font-size:12.5px;color:${today ? COLORS.success : COLORS.warn};margin-top:2px;font-weight:600">${message}</div>
+      </div>
+    </div>`;
+}
+
 /* ---------------- budget cycle (supports starting mid-month, keeps working forever) ---------------- */
 function getCycleStartDay() { return (state.data.settings && state.data.settings.cycleStartDay) || 1; }
 function cycleKeyForDate(dateISO) {
@@ -450,6 +507,7 @@ function overviewHTML() {
   const recent = monthExpenses().slice(0, 5);
   return `
     ${onboardingBannerHTML()}
+    ${streakCardHTML()}
     <div class="mobile-only"><div class="card hero-gradient">${gaugeHTML(spent, budget)}</div></div>
     <div class="overview-grid-1 desktop-only">
       ${budgetRingCardHTML(spent, budget)}
@@ -972,7 +1030,7 @@ function historyHTML() {
   return `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px">
       <div class="section-title" style="margin:0">كل العمليات</div>
-      <button class="btn btn-gold" onclick="exportCSV()">${icon("download", COLORS.ink, 14)} تصدير CSV</button>
+      <button class="btn btn-gold" onclick="exportCSV()">${icon("download", "#fff", 14)} تصدير CSV</button>
     </div>
     ${all.length === 0 ? `<div class="empty-state">ماعندك عمليات مسجلة بعد</div>` : ""}
     ${all.map((e) => {
@@ -1089,7 +1147,7 @@ function headerHTML() {
   return `
     <div class="header">
       <div class="header-top">
-        <div class="brand">${icon("wallet", COLORS.primary, 20)} محفظتي</div>
+        <div class="brand">${icon("wallet", COLORS.primary, 20)} محفظتي ${streakBadgeHTML()}</div>
         <div class="row" style="gap:8px">
           ${typeof mahfaztiAuthStatusHTML === "function" ? mahfaztiAuthStatusHTML() : ""}
           <button class="btn btn-ghost" onclick="enterGroceries()" title="بقالتي">${icon("shoppingBasket", COLORS.secondary, 16)}</button>
@@ -1150,7 +1208,7 @@ function render() {
       </div>
       <div class="fab-row">
         <button class="fab-secondary" onclick="openSmsSheet()">${icon("clipboard", "#fff", 15)} من رسالة بنكية</button>
-        <button class="fab" onclick="openExpenseSheet()">${icon("plus", COLORS.ink, 16)} إضافة مصروف</button>
+        <button class="fab" onclick="openExpenseSheet()">${icon("plus", "#fff", 16)} إضافة مصروف</button>
       </div>
       <div class="content">${body}</div>
     </div>
@@ -1189,7 +1247,7 @@ function appSidebarHTML() {
   ];
   return `
     <div class="app-sidebar">
-      <div class="sidebar-brand">${icon("wallet", COLORS.primary, 22)} محفظتي</div>
+      <div class="sidebar-brand">${icon("wallet", COLORS.primary, 22)} محفظتي ${streakBadgeHTML()}</div>
       <div class="sidebar-section-label">محفظتي</div>
       ${budgetLinks.map((l) => sidebarLinkHTML(l, mode === "budget" && state.tab === l.tab, "budget")).join("")}
       <div class="sidebar-section-label">بقالتي</div>
