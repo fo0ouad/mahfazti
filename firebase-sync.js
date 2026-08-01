@@ -57,8 +57,17 @@ function applyRemoteData(cloud) {
   window.render();
 }
 
+const SYNC_RESOLVED_KEY = "mahfazti-sync-resolved-v1";
 async function handleSignedIn(user) {
   currentUser = user;
+  // Firebase restores the signed-in session on every page load, which re-fires this same
+  // handler — the merge-conflict check below must only ever run once per (device, account),
+  // the first time this device links to this account. Otherwise the confirm() dialog nags
+  // on every single reload forever.
+  if (localStorage.getItem(SYNC_RESOLVED_KEY) === user.uid) {
+    window.render();
+    return;
+  }
   const ref = doc(db, "users", user.uid);
   let snap;
   try {
@@ -87,6 +96,7 @@ async function handleSignedIn(user) {
   } else {
     await pushToCloud();
   }
+  localStorage.setItem(SYNC_RESOLVED_KEY, user.uid);
   window.render();
 }
 
