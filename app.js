@@ -17,7 +17,13 @@ const DEFAULT_CATEGORIES = [
   { id: "other", name: "أخرى", icon: "moreHorizontal", color: "#6B6456", budget: 200 },
 ];
 
-const DEFAULT_SETTINGS = { cycleStartDay: 1, overallBudget: DEFAULT_CATEGORIES.reduce((s, c) => s + c.budget, 0) };
+const DEFAULT_SETTINGS = {
+  cycleStartDay: 1,
+  overallBudget: DEFAULT_CATEGORIES.reduce((s, c) => s + c.budget, 0),
+  debtBudget: 0,
+  savingsBudget: 0,
+  onboardingDismissed: false,
+};
 
 /* ---------------- icons (feather-style inline svg) ---------------- */
 function svg(inner, color, size) {
@@ -72,7 +78,7 @@ function shiftMonth(ym, delta) {
   if (m > 12) { m = 1; y += 1; }
   return `${y}-${String(m).padStart(2, "0")}`;
 }
-function fmt(n) { return new Intl.NumberFormat("ar-SA", { maximumFractionDigits: 0 }).format(Math.round(n || 0)); }
+function fmt(n) { return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(n || 0)); }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 function esc(str) { return String(str ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
@@ -332,19 +338,70 @@ function chartHTML() {
     </div>`;
 }
 
+function categoryPieHTML(spentMap) {
+  const entries = state.data.categories
+    .map((c) => ({ ...c, spent: spentMap[c.id] || 0 }))
+    .filter((c) => c.spent > 0)
+    .sort((a, b) => b.spent - a.spent);
+  const total = entries.reduce((s, c) => s + c.spent, 0);
+  if (!entries.length) {
+    return `
+      <div class="card">
+        <div class="section-title" style="margin-top:0">توزيع المصروفات</div>
+        <div class="empty-state" style="padding:20px 0">ماعندك مصاريف مسجلة هذا الشهر بعد</div>
+      </div>`;
+  }
+  let cursor = 0;
+  const stops = entries.map((c) => {
+    const start = (cursor / total) * 100;
+    cursor += c.spent;
+    const end = (cursor / total) * 100;
+    return `${c.color} ${start}% ${end}%`;
+  }).join(", ");
+  return `
+    <div class="card">
+      <div class="section-title" style="margin-top:0">توزيع المصروفات</div>
+      <div class="pie-wrap">
+        <div class="pie-donut" style="background:conic-gradient(${stops})"></div>
+        <div class="pie-center">
+          <div class="pie-total">${fmt(total)}</div>
+          <div class="pie-total-sub">ر.س</div>
+        </div>
+      </div>
+      <div class="pie-legend">
+        ${entries.map((c) => `
+          <div class="pie-legend-row">
+            <span class="pie-dot" style="background:${c.color}"></span>
+            <span class="pie-legend-name">${esc(c.name)}</span>
+            <span class="pie-legend-amt">${fmt(c.spent)} ر.س · ${fmt(total > 0 ? (c.spent / total) * 100 : 0)}%</span>
+          </div>`).join("")}
+      </div>
+    </div>`;
+}
+
 function onboardingBannerHTML() {
-  if (state.data.expenses.length > 0) return "";
+  if (state.data.expenses.length > 0 || state.data.settings.onboardingDismissed) return "";
   return `
     <div class="card" style="background:${COLORS.ink};color:#fff">
-      <div style="font-family:'Cairo',sans-serif;font-weight:700;font-size:15px;margin-bottom:8px">👋 ابدأ إعداد ميزانيتك الشهرية</div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px">
+        <div style="font-family:'Cairo',sans-serif;font-weight:700;font-size:15px">👋 ابدأ إعداد ميزانيتك الشهرية</div>
+        <button class="btn btn-ghost" style="background:#ffffff22;flex-shrink:0" onclick="dismissOnboarding()" title="تذكرني لاحقاً">${icon("x", "#fff", 13)}</button>
+      </div>
       <ol style="font-size:13px;line-height:1.9;padding-inline-start:18px;margin:0 0 12px;color:#ffffffd9">
         <li>حدد يوم بداية شهرك المالي من الإعدادات ⚙️ (١ لبداية الشهر، أو يوم استلام راتبك لو بديت من نص الشهر)</li>
         <li>روح تبويب "الفئات" وحدد ميزانية شهرية لكل فئة تناسب وضعك</li>
         <li>سجّل مصاريفك أول بأول — يدوياً أو بلصق رسالة تنبيه البنك مباشرة</li>
         <li>تابع تقدمك الأسبوعي لكل فئة، والشهري من "نظرة عامة" و"التقارير"</li>
       </ol>
-      <button class="btn btn-gold" onclick="openSettingsSheet()">ابدأ الإعداد</button>
+      <div class="row" style="gap:8px">
+        <button class="btn btn-gold" onclick="openSettingsSheet()">ابدأ الإعداد</button>
+        <button class="btn" style="background:#ffffff22;color:#fff" onclick="dismissOnboarding()">لاحقاً</button>
+      </div>
     </div>`;
+}
+function dismissOnboarding() {
+  state.data.settings.onboardingDismissed = true;
+  saveData(); render();
 }
 
 function overviewHTML() {
@@ -354,6 +411,7 @@ function overviewHTML() {
   return `
     ${onboardingBannerHTML()}
     <div class="card">${gaugeHTML(spent, totalBudget())}</div>
+    ${categoryPieHTML(spentMap)}
     ${chartHTML()}
     <div class="section-title">الفئات هذا الشهر</div>
     ${state.data.categories.map((c) => {
@@ -409,17 +467,34 @@ function weeklyMiniHTML(cat) {
     </div>`;
 }
 
+function allocatedTotal() { return totalBudget() + (state.data.settings.debtBudget || 0) + (state.data.settings.savingsBudget || 0); }
+function debtPaymentsThisCycle() {
+  let total = 0;
+  state.data.debts.forEach((d) => (d.payments || []).forEach((p) => { if (dateInCycle(p.date, state.month)) total += p.amount; }));
+  return total;
+}
+function allocRowHTML(label, amt, overall, color, onclick) {
+  return `
+    <div class="alloc-row" ${onclick ? `onclick="${onclick}" style="cursor:pointer"` : ""}>
+      <span class="alloc-dot" style="background:${color}"></span>
+      <span class="alloc-label">${label}</span>
+      <span class="alloc-amt">${fmt(amt)} ر.س<small> · ${overall > 0 ? fmt((amt / overall) * 100) : 0}%</small></span>
+    </div>`;
+}
 function allocationCardHTML() {
   const overall = state.data.settings.overallBudget || 0;
-  const allocated = totalBudget();
+  const catAlloc = totalBudget();
+  const debtAlloc = state.data.settings.debtBudget || 0;
+  const savingsAlloc = state.data.settings.savingsBudget || 0;
+  const allocated = catAlloc + debtAlloc + savingsAlloc;
   const remaining = overall - allocated;
   const over = remaining < 0;
   const pct = overall > 0 ? (allocated / overall) * 100 : 0;
   let note;
-  if (overall <= 0) note = "حدد ميزانيتك الشهرية الكاملة عشان تعرف كم باقي بدون توزيع على الفئات";
-  else if (over) note = `وزعت على الفئات ${fmt(allocated)} ر.س — تجاوزت الميزانية الكاملة بـ ${fmt(-remaining)} ر.س`;
-  else if (remaining === 0) note = `وزعت كامل الميزانية على فئاتك (${fmt(allocated)} ر.س)`;
-  else note = `وزعت ${fmt(allocated)} من ${fmt(overall)} ر.س على الفئات — باقي ${fmt(remaining)} ر.س ما توزع بعد`;
+  if (overall <= 0) note = "حدد ميزانيتك الشهرية الكاملة عشان تعرف كم باقي بدون توزيع";
+  else if (over) note = `وزعت ${fmt(allocated)} ر.س — تجاوزت الميزانية الكاملة بـ ${fmt(-remaining)} ر.س`;
+  else if (remaining === 0) note = `وزعت كامل الميزانية (${fmt(allocated)} ر.س)`;
+  else note = `وزعت ${fmt(allocated)} من ${fmt(overall)} ر.س — باقي ${fmt(remaining)} ر.س ما توزع بعد`;
   return `
     <div class="card" style="margin-top:16px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
@@ -428,13 +503,19 @@ function allocationCardHTML() {
       </div>
       <div style="font-family:'Cairo',sans-serif;font-weight:800;font-size:26px;margin:6px 0 10px">${fmt(overall)} <small style="font-size:13px;color:${COLORS.sub};font-weight:500">ر.س</small></div>
       ${progressBar(pct, over ? COLORS.danger : COLORS.success)}
-      <div style="font-size:12.5px;margin-top:8px;color:${over ? COLORS.danger : COLORS.sub}">${note}</div>
+      <div style="font-size:12.5px;margin:8px 0 14px;color:${over ? COLORS.danger : COLORS.sub}">${note}</div>
+      <div class="alloc-rows">
+        ${allocRowHTML("الفئات", catAlloc, overall, COLORS.ink)}
+        ${allocRowHTML("سداد الديون", debtAlloc, overall, COLORS.warn, "setTab('debts')")}
+        ${allocRowHTML("التوفير", savingsAlloc, overall, COLORS.success)}
+      </div>
+      <button class="btn btn-block" style="background:${COLORS.paper};color:${COLORS.ink};margin-top:14px" onclick="openBudgetSetupSheet()">${icon("settings", COLORS.ink, 15)} إعداد الميزانية الكاملة</button>
     </div>`;
 }
 function openOverallBudgetSheet() {
   const body = `
     <div class="field"><label>الميزانية الشهرية الكاملة (ر.س)</label><input id="f-overall" type="number" inputmode="decimal" value="${state.data.settings.overallBudget || ""}" placeholder="مثال: 6000"/></div>
-    <div style="font-size:12px;color:${COLORS.sub};margin:-8px 0 16px;line-height:1.7">هذا إجمالي المبلغ اللي تبي توزعه على فئاتك كل شهر (دخلك مثلاً). بعد ما تحفظه، وزّع منه على فئاتك من ميزانية كل فئة أدناه.</div>
+    <div style="font-size:12px;color:${COLORS.sub};margin:-8px 0 16px;line-height:1.7">هذا إجمالي المبلغ اللي تبي توزعه كل شهر (دخلك مثلاً) — على فئاتك، وسداد الديون، والتوفير.</div>
     <button class="btn btn-primary btn-block" onclick="saveOverallBudget()">${icon("check", "#fff", 16)} حفظ</button>
   `;
   openSheetShell("الميزانية الشهرية الكاملة", body);
@@ -446,8 +527,59 @@ function saveOverallBudget() {
   closeSheet(); render();
 }
 
+/* -- consolidated monthly budget setup -- */
+function openBudgetSetupSheet() {
+  const s = state.data.settings;
+  const body = `
+    <div class="field"><label>الميزانية الشهرية الكاملة (ر.س)</label><input id="bs-overall" type="number" inputmode="decimal" value="${s.overallBudget || ""}" oninput="updateBudgetSetupSummary()" placeholder="مثال: 6000"/></div>
+    <div class="field"><label>مخصص لسداد الديون شهرياً (ر.س)</label><input id="bs-debt" type="number" inputmode="decimal" value="${s.debtBudget || ""}" oninput="updateBudgetSetupSummary()" placeholder="0"/></div>
+    <div class="field"><label>مخصص للتوفير شهرياً (ر.س)</label><input id="bs-savings" type="number" inputmode="decimal" value="${s.savingsBudget || ""}" oninput="updateBudgetSetupSummary()" placeholder="0"/></div>
+    <div id="bs-summary" style="font-size:13px;color:${COLORS.sub};background:${COLORS.paper};border-radius:12px;padding:12px;margin-bottom:16px;line-height:1.9"></div>
+    <button class="btn btn-primary btn-block" onclick="saveBudgetSetup()">${icon("check", "#fff", 16)} حفظ</button>
+    <div class="section-title">فئات مصاريفك</div>
+    <div style="font-size:13px;color:${COLORS.sub};margin-bottom:10px;line-height:1.8">وزّع الباقي من ميزانيتك على فئاتك — عدّل ميزانية كل فئة من تبويب "الفئات"، وبتشوف نسبتها من الإجمالي أول بأول.</div>
+    ${state.data.categories.map((c) => `
+      <div class="cat-card" style="padding:10px 14px">
+        <div class="row">
+          ${iconBadge(c.icon, c.color, 14)}
+          <div style="flex:1"><span class="cat-name">${esc(c.name)}</span></div>
+          <span class="cat-amounts">${fmt(c.budget)} ر.س</span>
+        </div>
+      </div>`).join("")}
+  `;
+  openSheetShell("إعداد الميزانية الكاملة", body);
+  updateBudgetSetupSummary();
+}
+function updateBudgetSetupSummary() {
+  const overall = parseFloat(document.getElementById("bs-overall").value) || 0;
+  const debt = parseFloat(document.getElementById("bs-debt").value) || 0;
+  const savings = parseFloat(document.getElementById("bs-savings").value) || 0;
+  const catAlloc = totalBudget();
+  const allocated = catAlloc + debt + savings;
+  const remaining = overall - allocated;
+  const el = document.getElementById("bs-summary");
+  el.innerHTML = `
+    ميزانية الفئات الحالية: <strong>${fmt(catAlloc)} ر.س</strong><br/>
+    إجمالي الموزّع (فئات + ديون + توفير): <strong>${fmt(allocated)} ر.س</strong><br/>
+    ${remaining >= 0
+      ? `باقي بدون توزيع: <strong style="color:${COLORS.success}">${fmt(remaining)} ر.س</strong>`
+      : `تجاوزت الميزانية بـ: <strong style="color:${COLORS.danger}">${fmt(-remaining)} ر.س</strong>`}
+  `;
+}
+function saveBudgetSetup() {
+  const overall = parseFloat(document.getElementById("bs-overall").value);
+  const debt = parseFloat(document.getElementById("bs-debt").value);
+  const savings = parseFloat(document.getElementById("bs-savings").value);
+  state.data.settings.overallBudget = isNaN(overall) || overall < 0 ? 0 : overall;
+  state.data.settings.debtBudget = isNaN(debt) || debt < 0 ? 0 : debt;
+  state.data.settings.savingsBudget = isNaN(savings) || savings < 0 ? 0 : savings;
+  saveData();
+  closeSheet(); render();
+}
+
 function categoriesHTML() {
   const spentMap = spentByCategory();
+  const overallVal = state.data.settings.overallBudget || 0;
   return `
     ${allocationCardHTML()}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px">
@@ -458,6 +590,7 @@ function categoriesHTML() {
       const cs = spentMap[c.id] || 0;
       const pct = c.budget > 0 ? (cs / c.budget) * 100 : 0;
       const remaining = c.budget - cs;
+      const ofTotal = overallVal > 0 ? ` · ${fmt((c.budget / overallVal) * 100)}% من الإجمالي` : "";
       return `
         <div class="cat-card">
           <div class="row" style="margin-bottom:8px">
@@ -465,7 +598,7 @@ function categoriesHTML() {
             <div style="flex:1">
               <div class="cat-name">${esc(c.name)}</div>
               <div class="cat-amounts" style="${remaining < 0 ? `color:${COLORS.danger}` : ""}">
-                ${remaining >= 0 ? `متبقي ${fmt(remaining)} ر.س` : `تجاوز ${fmt(-remaining)} ر.س`}
+                ${remaining >= 0 ? `متبقي ${fmt(remaining)} ر.س` : `تجاوز ${fmt(-remaining)} ر.س`}${ofTotal}
               </div>
             </div>
             <button class="btn btn-ghost" onclick='openCategorySheet(${JSON.stringify(c.id)})'>${icon("pencil", COLORS.sub, 13)}</button>
@@ -478,12 +611,35 @@ function categoriesHTML() {
   `;
 }
 
+function debtBudgetCardHTML() {
+  const budget = state.data.settings.debtBudget || 0;
+  if (!budget) {
+    return `
+      <div class="card">
+        <div class="section-title" style="margin-top:0">ميزانية سداد الديون هذا الشهر</div>
+        <div style="font-size:13px;color:${COLORS.sub};line-height:1.8">ما حددت مبلغ شهري لسداد الديون بعد. حدده من <span style="color:${COLORS.ink};font-weight:700;cursor:pointer" onclick="setTab('categories')">"الفئات" ← إعداد الميزانية الكاملة</span>.</div>
+      </div>`;
+  }
+  const paid = debtPaymentsThisCycle();
+  const remaining = budget - paid;
+  const pctVal = budget > 0 ? (paid / budget) * 100 : 0;
+  return `
+    <div class="card">
+      <div class="section-title" style="margin-top:0">ميزانية سداد الديون هذا الشهر</div>
+      <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:8px">
+        <span>سددت ${fmt(paid)} من ${fmt(budget)} ر.س</span>
+        <span style="color:${remaining < 0 ? COLORS.danger : COLORS.sub}">${remaining >= 0 ? `باقي ${fmt(remaining)}` : `تجاوزت ${fmt(-remaining)}`}</span>
+      </div>
+      ${progressBar(pctVal, remaining < 0 ? COLORS.danger : COLORS.gold)}
+    </div>`;
+}
 function debtsHTML() {
   return `
     <div class="debt-summary">
       <div class="label">إجمالي المتبقي من الديون</div>
       <div class="value">${fmt(totalDebtRemaining())} <span style="font-size:14px;font-weight:500">ر.س</span></div>
     </div>
+    ${debtBudgetCardHTML()}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px">
       <div class="section-title" style="margin:0">الديون</div>
       <button class="btn btn-primary" onclick="openDebtSheet()">${icon("plus", "#fff", 14)} دين جديد</button>
@@ -564,6 +720,7 @@ function monthReportHTML() {
         <span>من إجمالي ميزانية الفئات</span><span>${fmt(budget)} ر.س</span>
       </div>
     </div>
+    ${categoryPieHTML(spentMap)}
     <div class="section-title">الفئات مرتبة حسب الأعلى صرفاً</div>
     ${sorted.map((c, i) => `
       <div class="cat-card">
@@ -726,8 +883,14 @@ function openSettingsSheet() {
       <li>سجّل مصاريفك أول بأول — يدوياً من زر "إضافة مصروف"، أو بلصق رسالة تنبيه البنك مباشرة</li>
       <li>تابع تقدمك الأسبوعي (يظهر تحت كل فئة) والشهري من "نظرة عامة"، وقارن بين الأشهر من "تقارير"</li>
     </ol>
+    ${state.data.settings.onboardingDismissed ? `<button class="btn btn-ghost" style="margin-top:14px;width:100%;justify-content:center;padding:9px" onclick="restoreOnboarding()">إظهار دليل البدء في الصفحة الرئيسية مرة ثانية</button>` : ""}
   `;
   openSheetShell("الإعدادات وإعداد الميزانية", body);
+}
+function restoreOnboarding() {
+  state.data.settings.onboardingDismissed = false;
+  saveData();
+  closeSheet(); render();
 }
 function saveSettings() {
   const startDay = parseInt(document.getElementById("f-startday").value, 10);
@@ -830,7 +993,11 @@ function openCategorySheet(catId) {
   window.__catColor = cat?.color || "#3E6B8A";
   const body = `
     <div class="field"><label>اسم الفئة</label><input id="f-catname" type="text" value="${esc(cat?.name || "")}" placeholder="مثال: تعليم"/></div>
-    <div class="field"><label>الميزانية الشهرية (ر.س)</label><input id="f-catbudget" type="number" inputmode="decimal" value="${cat?.budget ?? ""}" placeholder="0"/></div>
+    <div class="field">
+      <label>الميزانية الشهرية (ر.س)</label>
+      <input id="f-catbudget" type="number" inputmode="decimal" value="${cat?.budget ?? ""}" placeholder="0" oninput="updateCatBudgetPct()"/>
+      <div id="cat-budget-pct" style="font-size:12px;color:${COLORS.sub};margin-top:6px">${catBudgetPctNote(cat?.budget || 0)}</div>
+    </div>
     <div class="field"><label>الأيقونة</label>
       <div class="icon-choices" id="icon-choices">
         ${ICON_CHOICES.map((ic) => `<div class="icon-choice ${ic === window.__catIcon ? "selected" : ""}" data-icon="${ic}" onclick="pickCatIcon(this,'${ic}')">${iconBadge(ic, window.__catColor, 13)}</div>`).join("")}
@@ -844,6 +1011,15 @@ function openCategorySheet(catId) {
     <button class="btn btn-primary btn-block" onclick='submitCategory(${JSON.stringify(cat?.id || null)})'>${icon("check", "#fff", 16)} حفظ</button>
   `;
   openSheetShell(cat ? "تعديل الفئة" : "فئة جديدة", body);
+}
+function catBudgetPctNote(amount) {
+  const overall = state.data.settings.overallBudget || 0;
+  if (overall <= 0) return "حدد ميزانيتك الشهرية الكاملة الأول (من صفحة الفئات) عشان تشوف النسبة";
+  return `يعادل ${fmt((amount / overall) * 100)}% من ميزانيتك الشهرية الكاملة (${fmt(overall)} ر.س)`;
+}
+function updateCatBudgetPct() {
+  const amount = parseFloat(document.getElementById("f-catbudget").value) || 0;
+  document.getElementById("cat-budget-pct").textContent = catBudgetPctNote(amount);
 }
 function pickCatIcon(el, ic) {
   document.querySelectorAll("#icon-choices .icon-choice").forEach((n) => n.classList.remove("selected"));
