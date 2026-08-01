@@ -23,7 +23,7 @@ body{
 }
 .display{font-family:'Cairo', sans-serif;}
 
-#app{min-height:100vh;padding-bottom:96px;}
+#app{min-height:100vh;padding-bottom:160px;}
 
 /* header */
 .header{
