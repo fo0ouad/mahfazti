@@ -201,6 +201,10 @@ function totalDebtRemaining() {
 
 /* ---------------- mutations ---------------- */
 function addExpense(exp) { state.data.expenses.unshift({ id: uid(), ...exp }); saveData(); }
+function updateExpense(id, patch) {
+  state.data.expenses = state.data.expenses.map((e) => (e.id === id ? { ...e, ...patch } : e));
+  saveData();
+}
 function deleteExpense(id) {
   if (!confirm("تحذف هذا المصروف؟")) return;
   state.data.expenses = state.data.expenses.filter((e) => e.id !== id);
@@ -795,6 +799,7 @@ function historyHTML() {
             <div class="tx-sub">${e.date}${e.note ? " · " + esc(e.note) : ""}</div>
           </div>
           <span class="tx-amount">${fmt(e.amount)}</span>
+          <button class="btn btn-ghost" onclick='openExpenseSheet(${JSON.stringify(e.id)})'>${icon("pencil", COLORS.sub, 13)}</button>
           <button class="btn btn-ghost" onclick='deleteExpense(${JSON.stringify(e.id)})'>${icon("trash", COLORS.danger, 13)}</button>
         </div>`;
     }).join("")}
@@ -1015,11 +1020,12 @@ function saveSettings() {
   closeSheet(); render();
 }
 
-/* -- add expense -- */
-function openExpenseSheet() {
-  let selectedCat = state.data.categories[0]?.id || null;
+/* -- add / edit expense -- */
+function openExpenseSheet(editId) {
+  const editing = editId ? state.data.expenses.find((e) => e.id === editId) : null;
+  let selectedCat = editing ? editing.categoryId : (state.data.categories[0]?.id || null);
   const body = `
-    <div class="field"><label>المبلغ (ر.س)</label><input id="f-amount" type="number" inputmode="decimal" placeholder="0"/></div>
+    <div class="field"><label>المبلغ (ر.س)</label><input id="f-amount" type="number" inputmode="decimal" placeholder="0" value="${editing ? editing.amount : ""}"/></div>
     <div class="field"><label>الفئة</label>
       <div class="cat-grid" id="cat-grid">
         ${state.data.categories.map((c) => `
@@ -1028,11 +1034,12 @@ function openExpenseSheet() {
           </div>`).join("")}
       </div>
     </div>
-    <div class="field"><label>التاريخ</label><input id="f-date" type="date" value="${todayISO()}"/></div>
-    <div class="field"><label>ملاحظة (اختياري)</label><input id="f-note" type="text" placeholder="مثال: غداء مع فريق العمل"/></div>
-    <button class="btn btn-primary btn-block" onclick="submitExpense()">${icon("check", "#fff", 16)} حفظ المصروف</button>
+    <div class="field"><label>التاريخ</label><input id="f-date" type="date" value="${editing ? editing.date : todayISO()}"/></div>
+    <div class="field"><label>ملاحظة (اختياري)</label><input id="f-note" type="text" placeholder="مثال: غداء مع فريق العمل" value="${editing && editing.note ? esc(editing.note) : ""}"/></div>
+    <input type="hidden" id="f-edit-id" value="${editing ? editing.id : ""}"/>
+    <button class="btn btn-primary btn-block" onclick="submitExpense()">${icon("check", "#fff", 16)} ${editing ? "حفظ التعديل" : "حفظ المصروف"}</button>
   `;
-  openSheetShell("إضافة مصروف", body);
+  openSheetShell(editing ? "تعديل مصروف" : "إضافة مصروف", body);
   window.__selectedCat = selectedCat;
 }
 function pickExpenseCat(el, catId) {
@@ -1041,12 +1048,15 @@ function pickExpenseCat(el, catId) {
   window.__selectedCat = catId;
 }
 function submitExpense() {
+  const editId = document.getElementById("f-edit-id").value;
   const amount = parseFloat(document.getElementById("f-amount").value);
   const date = document.getElementById("f-date").value || todayISO();
   const note = document.getElementById("f-note").value.trim();
   const categoryId = window.__selectedCat;
   if (!amount || amount <= 0 || !categoryId) { alert("أدخل مبلغ صحيح واختر فئة"); return; }
-  addExpense({ amount, categoryId, note, date });
+  const patch = { amount, categoryId, note, date };
+  if (editId) updateExpense(editId, patch);
+  else addExpense(patch);
   closeSheet(); render();
 }
 

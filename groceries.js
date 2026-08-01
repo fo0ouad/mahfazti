@@ -108,6 +108,10 @@ function exitGroceries() {
 
 /* ---------------- mutations ---------------- */
 function addGroceryItem(it) { groceryData.items.unshift({ id: uid(), ...it }); saveGroceryData(); }
+function updateGroceryItem(id, patch) {
+  groceryData.items = groceryData.items.map((it) => (it.id === id ? { ...it, ...patch } : it));
+  saveGroceryData();
+}
 function deleteGroceryItem(id) {
   if (!confirm("تحذف هذا العنصر؟")) return;
   groceryData.items = groceryData.items.filter((x) => x.id !== id);
@@ -322,6 +326,7 @@ function openProductDetail(product) {
           <div class="tx-sub">${p.date} · ${p.quantity} ${esc(p.unit)}</div>
         </div>
         <span class="tx-amount">${fmt(p.unitPrice)}/${esc(p.unit)}</span>
+        <button class="btn btn-ghost" onclick='closeSheet();openAddGroceryItemSheet(${JSON.stringify(p.id)})'>${icon("pencil", COLORS.sub, 13)}</button>
       </div>`).join("")}
   `;
   openSheetShell(product, body);
@@ -343,6 +348,7 @@ function groceryHistoryHTML() {
           <div class="tx-sub">${it.date} · ${esc(it.store)} · ${esc(it.category)} · ${it.quantity} ${esc(it.unit)}</div>
         </div>
         <span class="tx-amount">${fmt(it.totalPrice)}</span>
+        <button class="btn btn-ghost" onclick='openAddGroceryItemSheet(${JSON.stringify(it.id)})'>${icon("pencil", COLORS.sub, 13)}</button>
         <button class="btn btn-ghost" onclick='deleteGroceryItem(${JSON.stringify(it.id)})'>${icon("trash", COLORS.danger, 13)}</button>
       </div>`).join("")}
   `;
@@ -377,33 +383,38 @@ function renderGroceries() {
   `;
 }
 
-/* -- add item manually, with autofill from the last time this product was bought -- */
-function openAddGroceryItemSheet() {
+/* -- add / edit item manually, with autofill from the last time this product was bought -- */
+function openAddGroceryItemSheet(editId) {
+  const editing = editId ? groceryData.items.find((it) => it.id === editId) : null;
   const productOptions = [...new Set(groceryData.items.map((it) => it.product))];
+  const unitOptions = editing && !GROCERY_UNITS.includes(editing.unit) ? [...GROCERY_UNITS, editing.unit] : GROCERY_UNITS;
+  const storeOptions = editing && !GROCERY_STORES.includes(editing.store) ? [...GROCERY_STORES, editing.store] : GROCERY_STORES;
   const body = `
     <div class="field">
       <label>اسم المنتج</label>
-      <input id="g-product" list="g-product-list" type="text" placeholder="مثال: تفاح رويال جالا" oninput="groceryProductAutofill()"/>
+      <input id="g-product" list="g-product-list" type="text" placeholder="مثال: تفاح رويال جالا" value="${editing ? esc(editing.product) : ""}" oninput="groceryProductAutofill()"/>
       <datalist id="g-product-list">${productOptions.map((p) => `<option value="${esc(p)}"></option>`).join("")}</datalist>
     </div>
     <div class="field"><label>الفئة</label>
-      <select id="g-category">${GROCERY_CATEGORIES.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("")}</select>
+      <select id="g-category">${GROCERY_CATEGORIES.map((c) => `<option value="${esc(c)}" ${editing && editing.category === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
     </div>
     <div class="field"><label>المتجر</label>
-      <select id="g-store">${GROCERY_STORES.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("")}</select>
+      <select id="g-store">${storeOptions.map((s) => `<option value="${esc(s)}" ${editing && editing.store === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>
     </div>
     <div style="display:flex;gap:10px">
-      <div class="field" style="flex:1"><label>الكمية</label><input id="g-qty" type="number" inputmode="decimal" value="1" oninput="groceryComputeUnitPrice()"/></div>
+      <div class="field" style="flex:1"><label>الكمية</label><input id="g-qty" type="number" inputmode="decimal" value="${editing ? editing.quantity : 1}" oninput="groceryComputeUnitPrice()"/></div>
       <div class="field" style="flex:1"><label>الوحدة</label>
-        <select id="g-unit" onchange="groceryComputeUnitPrice()">${GROCERY_UNITS.map((u) => `<option value="${esc(u)}">${esc(u)}</option>`).join("")}</select>
+        <select id="g-unit" onchange="groceryComputeUnitPrice()">${unitOptions.map((u) => `<option value="${esc(u)}" ${editing && editing.unit === u ? "selected" : ""}>${esc(u)}</option>`).join("")}</select>
       </div>
     </div>
-    <div class="field"><label>السعر الإجمالي (ر.س)</label><input id="g-total" type="number" inputmode="decimal" placeholder="0" oninput="groceryComputeUnitPrice()"/></div>
+    <div class="field"><label>السعر الإجمالي (ر.س)</label><input id="g-total" type="number" inputmode="decimal" placeholder="0" value="${editing ? editing.totalPrice : ""}" oninput="groceryComputeUnitPrice()"/></div>
     <div id="g-unitprice-hint" style="font-size:12px;color:${COLORS.sub};margin:-8px 0 16px"></div>
-    <div class="field"><label>التاريخ</label><input id="g-date" type="date" value="${todayISO()}"/></div>
-    <button class="btn btn-primary btn-block" onclick="submitGroceryItem()">${icon("check", "#fff", 16)} حفظ</button>
+    <div class="field"><label>التاريخ</label><input id="g-date" type="date" value="${editing ? editing.date : todayISO()}"/></div>
+    <input type="hidden" id="g-edit-id" value="${editing ? editing.id : ""}"/>
+    <button class="btn btn-primary btn-block" onclick="submitGroceryItem()">${icon("check", "#fff", 16)} ${editing ? "حفظ التعديل" : "حفظ"}</button>
   `;
-  openSheetShell("عنصر بقالة جديد", body);
+  openSheetShell(editing ? "تعديل عنصر" : "عنصر بقالة جديد", body);
+  groceryComputeUnitPrice();
 }
 function groceryProductAutofill() {
   const last = findLastGroceryEntry(document.getElementById("g-product").value);
@@ -420,6 +431,7 @@ function groceryComputeUnitPrice() {
   hint.textContent = qty > 0 && total > 0 ? `سعر الوحدة: ${fmt(total / qty)} ر.س` : "";
 }
 function submitGroceryItem() {
+  const editId = document.getElementById("g-edit-id").value;
   const product = document.getElementById("g-product").value.trim();
   const category = document.getElementById("g-category").value;
   const store = document.getElementById("g-store").value;
@@ -428,7 +440,9 @@ function submitGroceryItem() {
   const totalPrice = parseFloat(document.getElementById("g-total").value);
   const date = document.getElementById("g-date").value || todayISO();
   if (!product || !quantity || quantity <= 0 || !totalPrice || totalPrice <= 0) { alert("أدخل اسم المنتج والكمية والسعر"); return; }
-  addGroceryItem({ product, category, store, quantity, unit, totalPrice, unitPrice: totalPrice / quantity, date });
+  const patch = { product, category, store, quantity, unit, totalPrice, unitPrice: totalPrice / quantity, date };
+  if (editId) updateGroceryItem(editId, patch);
+  else addGroceryItem(patch);
   closeSheet(); renderGroceries();
 }
 
