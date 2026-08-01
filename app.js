@@ -899,7 +899,10 @@ function headerHTML() {
     <div class="header">
       <div class="header-top">
         <div class="brand">${icon("wallet", COLORS.gold, 20)} محفظتي</div>
-        <button class="btn btn-ghost" style="background:#ffffff22" onclick="openSettingsSheet()">${icon("settings", "#fff", 16)}</button>
+        <div class="row" style="gap:8px">
+          <button class="btn btn-ghost" style="background:#ffffff22" onclick="enterGroceries()" title="بقالتي">${icon("shoppingBag", "#fff", 16)}</button>
+          <button class="btn btn-ghost" style="background:#ffffff22" onclick="openSettingsSheet()" title="الإعدادات">${icon("settings", "#fff", 16)}</button>
+        </div>
       </div>
       <div class="month-nav">
         <button onclick="changeMonth(-1)">${icon("chevronRight", "#fff", 16)}</button>
@@ -928,6 +931,7 @@ function bottomNavHTML() {
 }
 
 function render() {
+  if (window.__mode === "groceries" && typeof renderGroceries === "function") { renderGroceries(); return; }
   const app = document.getElementById("app");
   let body = "";
   if (state.tab === "overview") body = overviewHTML();
@@ -1103,6 +1107,10 @@ function openCategorySheet(catId) {
   window.__catIcon = cat?.icon || "shoppingBag";
   window.__catColor = cat?.color || "#3E6B8A";
   const body = `
+    ${!cat ? `
+    <div style="font-size:12px;color:${COLORS.sub};background:${COLORS.paper};border-radius:12px;padding:11px 13px;margin-bottom:16px;line-height:1.8">
+      💡 سوّي فئة جديدة إذا المصروف <strong style="color:${COLORS.ink}">متكرر بانتظام</strong> (أسبوعي أو شهري) <strong style="color:${COLORS.ink}">ومبلغه شبه ثابت</strong> ومهم تتابعه لحاله. غير كذا — نادر، مبلغه متغير، أو صغير — سجّله تحت "أخرى" مع ملاحظة توضح نوعه.
+    </div>` : ""}
     <div class="field"><label>اسم الفئة</label><input id="f-catname" type="text" value="${esc(cat?.name || "")}" placeholder="مثال: تعليم"/></div>
     <div class="field">
       <label>الميزانية الشهرية (ر.س)</label>
