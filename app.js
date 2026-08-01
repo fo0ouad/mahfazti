@@ -521,6 +521,7 @@ function overviewHTML() {
       </div>
       ${categoryStackedBarHTML(spentMap)}
     </div>
+    ${debtBudgetStatHTML()}
     <div class="mobile-only">
       ${chartHTML()}
       <div class="section-title">الفئات هذا الشهر</div>
@@ -648,6 +649,21 @@ function debtPaymentsThisCycle() {
   state.data.debts.forEach((d) => (d.payments || []).forEach((p) => { if (dateInCycle(p.date, state.month)) total += p.amount; }));
   return total;
 }
+function debtBudgetStatHTML() {
+  const budget = state.data.settings.debtBudget || 0;
+  if (!budget) return "";
+  const paid = debtPaymentsThisCycle();
+  const pct = budget > 0 ? (paid / budget) * 100 : 0;
+  return `
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:13px;color:${COLORS.sub}">سداد الديون هذا الشهر</span>
+        <span style="font-weight:700;font-size:13px">${fmt(pct)}%</span>
+      </div>
+      ${progressBar(pct, COLORS.warn)}
+      <div style="font-size:12px;color:${COLORS.sub};margin-top:6px">${fmt(paid)} من ${fmt(budget)} ر.س</div>
+    </div>`;
+}
 function allocRowHTML(label, amt, overall, color, onclick) {
   return `
     <div class="alloc-row" ${onclick ? `onclick="${onclick}" style="cursor:pointer"` : ""}>
@@ -771,10 +787,7 @@ function categoriesHTML() {
   const overallVal = state.data.settings.overallBudget || 0;
   return `
     ${allocationCardHTML()}
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px">
-      <div class="section-title" style="margin:0">الفئات وميزانياتها</div>
-      <button class="btn btn-primary" onclick="openCategorySheet(null)">${icon("plus", "#fff", 14)} فئة جديدة</button>
-    </div>
+    <div class="section-title">الفئات وميزانياتها</div>
     <div class="mobile-only">
       ${state.data.categories.map((c) => {
         const cs = spentMap[c.id] || 0;
@@ -969,10 +982,7 @@ function debtsHTML() {
       <div class="value">${fmt(totalDebtRemaining())} <span style="font-size:14px;font-weight:500">ر.س</span></div>
     </div>
     ${debtBudgetCardHTML()}
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px">
-      <div class="section-title" style="margin:0">الديون</div>
-      <button class="btn btn-primary" onclick="openDebtSheet()">${icon("plus", "#fff", 14)} دين جديد</button>
-    </div>
+    <div class="section-title">الديون</div>
     ${state.data.debts.length === 0 ? `<div class="empty-state">ماعندك ديون مسجلة</div>` : ""}
     <div class="mobile-only">
       ${state.data.debts.map((d) => {
@@ -985,12 +995,16 @@ function debtsHTML() {
               ${iconBadge("creditCard", COLORS.gold, 16)}
               <div style="flex:1">
                 <div class="cat-name">${esc(d.name)}</div>
-                <div class="cat-amounts">سددت ${fmt(paid)} · متبقي ${fmt(remaining)} من ${fmt(d.totalAmount)}</div>
+                <div class="cat-amounts">سددت ${fmt(paid)} · متبقي ${fmt(remaining)} من ${fmt(d.totalAmount)}${d.date ? ` · أُخذ بتاريخ ${d.date}` : ""}</div>
+                ${d.note ? `<div style="font-size:12px;color:${COLORS.sub};margin-top:2px">${esc(d.note)}</div>` : ""}
               </div>
               <button class="btn btn-ghost" onclick='deleteDebt(${JSON.stringify(d.id)})'>${icon("trash", COLORS.danger, 13)}</button>
             </div>
             ${progressBar(pct, COLORS.success)}
-            ${remaining > 0 ? `<button class="btn" style="width:100%;justify-content:center;margin-top:10px;background:${COLORS.paper};color:${COLORS.ink};padding:9px;border-radius:12px" onclick='openPaySheet(${JSON.stringify(d.id)})'>تسجيل سداد</button>` : ""}
+            <div class="row" style="gap:8px;margin-top:10px">
+              ${remaining > 0 ? `<button class="btn" style="flex:1;justify-content:center;background:${COLORS.paper};color:${COLORS.ink};padding:9px;border-radius:12px" onclick='openPaySheet(${JSON.stringify(d.id)})'>تسجيل سداد</button>` : ""}
+              <button class="btn" style="flex:1;justify-content:center;background:${COLORS.paper};color:${COLORS.ink};padding:9px;border-radius:12px" onclick='openDebtHistorySheet(${JSON.stringify(d.id)})'>سجل السداد${(d.payments || []).length ? ` (${d.payments.length})` : ""}</button>
+            </div>
           </div>`;
       }).join("")}
     </div>
@@ -1006,7 +1020,8 @@ function debtsHTML() {
                 ${iconBadge("creditCard", COLORS.gold, 16)}
                 <div>
                   <div class="cat-name">${esc(d.name)}</div>
-                  <div class="cat-amounts">تم سداد ${fmt(paid)} ر.س حتى الآن</div>
+                  <div class="cat-amounts">تم سداد ${fmt(paid)} ر.س حتى الآن${d.date ? ` · أُخذ بتاريخ ${d.date}` : ""}</div>
+                  ${d.note ? `<div style="font-size:12px;color:${COLORS.sub};margin-top:2px">${esc(d.note)}</div>` : ""}
                 </div>
               </div>
               <div style="display:flex;align-items:center;gap:6px">
@@ -1017,7 +1032,10 @@ function debtsHTML() {
             ${progressBar(pct, COLORS.success)}
             <div class="row" style="justify-content:space-between;margin-top:10px">
               <span style="font-size:12.5px;color:${COLORS.sub}">تم سداد ${fmt(pct)}% من إجمالي ${fmt(d.totalAmount)} ر.س</span>
-              ${remaining > 0 ? `<button class="btn btn-ghost" style="width:auto;height:auto;padding:6px 12px;font-size:12px;font-weight:600" onclick='openPaySheet(${JSON.stringify(d.id)})'>تسجيل سداد</button>` : ""}
+              <div style="display:flex;gap:8px">
+                <button class="btn btn-ghost" style="width:auto;height:auto;padding:6px 12px;font-size:12px;font-weight:600" onclick='openDebtHistorySheet(${JSON.stringify(d.id)})'>سجل السداد${(d.payments || []).length ? ` (${d.payments.length})` : ""}</button>
+                ${remaining > 0 ? `<button class="btn btn-ghost" style="width:auto;height:auto;padding:6px 12px;font-size:12px;font-weight:600" onclick='openPaySheet(${JSON.stringify(d.id)})'>تسجيل سداد</button>` : ""}
+              </div>
             </div>
           </div>`;
       }).join("")}
@@ -1080,6 +1098,7 @@ function monthReportHTML() {
         <span>من إجمالي ميزانية الفئات</span><span>${fmt(budget)} ر.س</span>
       </div>
     </div>
+    ${debtBudgetStatHTML()}
     ${categoryPieHTML(spentMap)}
     <div class="section-title">الفئات مرتبة حسب الأعلى صرفاً</div>
     ${sorted.map((c, i) => `
@@ -1181,6 +1200,16 @@ function bottomNavHTML() {
 }
 
 const TAB_TITLES = { overview: "نظرة عامة", categories: "الفئات", reports: "التقارير", debts: "الديون", history: "السجل", savings: "أهداف الادخار" };
+function tabFabRowHTML(tab) {
+  if (tab === "categories") return `<div class="fab-row"><button class="fab" onclick="openCategorySheet(null)">${icon("plus", "#fff", 16)} فئة جديدة</button></div>`;
+  if (tab === "debts") return `<div class="fab-row"><button class="fab" onclick="openDebtSheet()">${icon("plus", "#fff", 16)} دين جديد</button></div>`;
+  if (tab === "savings") return `<div class="fab-row"><button class="fab" onclick="openSavingsGoalSheet()">${icon("plus", "#fff", 16)} هدف جديد</button></div>`;
+  return `
+    <div class="fab-row">
+      <button class="fab-secondary" onclick="openSmsSheet()">${icon("clipboard", "#fff", 15)} من رسالة بنكية</button>
+      <button class="fab" onclick="openExpenseSheet()">${icon("plus", "#fff", 16)} إضافة مصروف</button>
+    </div>`;
+}
 
 function render() {
   if (window.__mode === "groceries" && typeof renderGroceries === "function") { renderGroceries(); return; }
@@ -1206,10 +1235,7 @@ function render() {
           <button onclick="changeMonth(1)" ${atCurrentCycle ? "disabled" : ""}>${icon("chevronLeft", COLORS.ink, 16)}</button>
         </div>
       </div>
-      <div class="fab-row">
-        <button class="fab-secondary" onclick="openSmsSheet()">${icon("clipboard", "#fff", 15)} من رسالة بنكية</button>
-        <button class="fab" onclick="openExpenseSheet()">${icon("plus", "#fff", 16)} إضافة مصروف</button>
-      </div>
+      ${tabFabRowHTML(state.tab)}
       <div class="content">${body}</div>
     </div>
     ${bottomNavHTML()}
@@ -1508,6 +1534,7 @@ function openDebtSheet() {
   const body = `
     <div class="field"><label>اسم الدين / الجهة</label><input id="f-debtname" type="text" placeholder="مثال: قرض بنكي"/></div>
     <div class="field"><label>المبلغ الإجمالي (ر.س)</label><input id="f-debttotal" type="number" inputmode="decimal" placeholder="0"/></div>
+    <div class="field"><label>تاريخ أخذ الدين (اختياري)</label><input id="f-debtdate" type="date"/></div>
     <div class="field"><label>ملاحظة (اختياري)</label><input id="f-debtnote" type="text"/></div>
     <button class="btn btn-primary btn-block" onclick="submitDebt()">${icon("check", "#fff", 16)} حفظ الدين</button>
   `;
@@ -1516,9 +1543,10 @@ function openDebtSheet() {
 function submitDebt() {
   const name = document.getElementById("f-debtname").value.trim();
   const totalAmount = parseFloat(document.getElementById("f-debttotal").value);
+  const date = document.getElementById("f-debtdate").value || null;
   const note = document.getElementById("f-debtnote").value.trim();
   if (!name || !totalAmount || totalAmount <= 0) { alert("أدخل اسم الدين ومبلغ صحيح"); return; }
-  addDebt({ name, totalAmount, note });
+  addDebt({ name, totalAmount, date, note });
   closeSheet(); render();
 }
 
@@ -1530,15 +1558,31 @@ function openPaySheet(debtId) {
   const body = `
     <div style="font-size:14px;color:${COLORS.sub};margin-bottom:16px">المتبقي حالياً: ${fmt(remaining)} ر.س</div>
     <div class="field"><label>مبلغ السداد (ر.س)</label><input id="f-paymount" type="number" inputmode="decimal" placeholder="0"/></div>
+    <div class="field"><label>تاريخ السداد</label><input id="f-paydate" type="date" value="${todayISO()}"/></div>
     <button class="btn btn-block" style="background:${COLORS.success};color:#fff" onclick='submitPay(${JSON.stringify(debtId)})'>${icon("check", "#fff", 16)} تسجيل السداد</button>
   `;
   openSheetShell(`سداد: ${d.name}`, body);
 }
 function submitPay(debtId) {
   const amount = parseFloat(document.getElementById("f-paymount").value);
+  const date = document.getElementById("f-paydate").value || todayISO();
   if (!amount || amount <= 0) { alert("أدخل مبلغ سداد صحيح"); return; }
-  payDebt(debtId, { amount, date: todayISO() });
+  payDebt(debtId, { amount, date });
   closeSheet(); render();
+}
+function openDebtHistorySheet(debtId) {
+  const d = state.data.debts.find((x) => x.id === debtId);
+  if (!d) return;
+  const payments = (d.payments || []).slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+  const body = `
+    ${d.date ? `<div style="font-size:13px;color:${COLORS.sub};margin-bottom:14px">تاريخ الدين: ${d.date}</div>` : ""}
+    ${!payments.length ? `<div class="empty-state">ما سددت شي بعد على هذا الدين</div>` : payments.map((p) => `
+      <div class="tx-row">
+        <div class="tx-main"><div class="tx-title">سداد</div><div class="tx-sub">${p.date}</div></div>
+        <span class="tx-amount">${fmt(p.amount)} ر.س</span>
+      </div>`).join("")}
+  `;
+  openSheetShell(`سجل السداد: ${d.name}`, body);
 }
 
 /* ---------------- init ---------------- */
