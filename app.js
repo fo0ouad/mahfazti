@@ -4,9 +4,15 @@
 const STORAGE_KEY = "mahfazti-data-v1";
 
 const COLORS = {
-  ink: "#1B3B34", gold: "#C99A3A", paper: "#F6F2E9", card: "#FFFFFF",
-  border: "#E4DDC9", sub: "#8A8272", danger: "#B3483B", success: "#3E7C5A", warn: "#C99A3A",
+  ink: "#1A2233", sub: "#6B7280", tertiary: "#9AA1AC",
+  border: "#E3E7EE", card: "#FFFFFF", surfaceMuted: "#EEF1F6", paper: "#F7F8FA",
+  primary: "#2E5AAC", primaryDark: "#26468C", primaryTint: "#E8EDF9",
+  secondary: "#C3652F", secondaryTint: "#FBEDE4",
+  danger: "#DC4C3F", dangerBg: "#FBE9E7", warn: "#E2A93B", warnBg: "#FBF1DE",
+  success: "#2F9E5C", successBg: "#E8F6ED",
+  gold: "#2E5AAC", // legacy alias -> primary, kept so existing call sites don't need renaming
 };
+window.COLORS = COLORS; // COLORS is `const` (script-scope, not a window property by default) — firebase-sync.js is a module and needs window.COLORS to see it
 
 const DEFAULT_CATEGORIES = [
   { id: "food", name: "أكل ومطاعم", icon: "utensils", color: "#C97B3D", budget: 1200 },
@@ -62,6 +68,7 @@ const ICONS = {
   piggyBank: (c, s) => svg(`<path d="M11 5c-4 0-7 2.5-7 6 0 1.6.7 3 1.8 4.1L5 18h3l.7-1c.7.2 1.5.3 2.3.3s1.6-.1 2.3-.3l.7 1h3l-.8-2.9C18.3 14 19 12.6 19 11c0-.7-.1-1.3-.4-1.9L21 8l-2-1-1.2 1.2C16.4 6.7 13.9 5 11 5Z"/><circle cx="8" cy="10" r="1"/>`, c, s),
   cloud: (c, s) => svg(`<path d="M7 18a4.5 4.5 0 0 1-1-8.9A5.5 5.5 0 0 1 16.9 8.2 4 4 0 0 1 17.5 16"/><path d="M7 18h10.5"/>`, c, s),
   cloudCheck: (c, s) => svg(`<path d="M7 17a4.5 4.5 0 0 1-1-8.9A5.5 5.5 0 0 1 16.9 7.2 4 4 0 0 1 17.5 15"/><path d="M7 17h10.5"/><path d="M9.5 12.5l2 2 3.5-4"/>`, c, s),
+  shoppingBasket: (c, s) => svg(`<path d="M4 9h16"/><path d="M4 9l1.4 10.2A1.6 1.6 0 0 0 7 21h10a1.6 1.6 0 0 0 1.6-1.8L20 9"/><path d="M7 9l9-6"/><path d="M17 9L8 3"/><path d="M9 12.5v5M12 12.5v5M15 12.5v5"/>`, c, s),
 };
 function icon(name, color, size = 20) {
   return (ICONS[name] || ICONS.moreHorizontal)(color, size);
@@ -338,17 +345,17 @@ function gaugeHTML(spent, budget) {
   const pct = Math.min(overPct, 100);
   const r = 70, circumference = Math.PI * r;
   const offset = circumference - (pct / 100) * circumference;
-  const color = overPct > 100 ? COLORS.danger : overPct > 85 ? COLORS.warn : COLORS.success;
+  const color = overPct > 100 ? "#FF8A80" : overPct > 85 ? "#FFD98A" : "#FFFFFF";
   const remaining = budget - spent;
   return `
     <div class="gauge-wrap">
       <svg width="180" height="100" viewBox="0 0 180 100">
-        <path d="M 10 90 A 80 80 0 0 1 170 90" fill="none" stroke="${COLORS.border}" stroke-width="14" stroke-linecap="round"/>
+        <path d="M 10 90 A 80 80 0 0 1 170 90" fill="none" stroke="#ffffff33" stroke-width="14" stroke-linecap="round"/>
         <path d="M 10 90 A 80 80 0 0 1 170 90" fill="none" stroke="${color}" stroke-width="14" stroke-linecap="round"
           stroke-dasharray="${circumference}" stroke-dashoffset="${offset}" style="transition:stroke-dashoffset .5s ease"/>
       </svg>
-      <div class="gauge-value">${fmt(spent)} <small>ر.س</small></div>
-      <div class="gauge-sub" style="color:${remaining < 0 ? COLORS.danger : COLORS.sub}">
+      <div class="gauge-value" style="color:#fff">${fmt(spent)} <small style="color:#ffffffb3">ر.س</small></div>
+      <div class="gauge-sub" style="color:${remaining < 0 ? "#FFCDC7" : "#ffffffcc"}">
         ${remaining >= 0 ? `متبقي ${fmt(remaining)} ر.س من ${fmt(budget)}` : `تجاوزت الميزانية بـ ${fmt(-remaining)} ر.س`}
       </div>
     </div>`;
@@ -414,7 +421,7 @@ function categoryPieHTML(spentMap) {
 function onboardingBannerHTML() {
   if (state.data.expenses.length > 0 || state.data.settings.onboardingDismissed) return "";
   return `
-    <div class="card" style="background:${COLORS.ink};color:#fff">
+    <div class="card" style="background:${COLORS.primary};color:#fff">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px">
         <div style="font-family:'Cairo',sans-serif;font-weight:700;font-size:15px">👋 ابدأ إعداد ميزانيتك الشهرية</div>
         <button class="btn btn-ghost" style="background:#ffffff22;flex-shrink:0" onclick="dismissOnboarding()" title="تذكرني لاحقاً">${icon("x", "#fff", 13)}</button>
@@ -442,7 +449,7 @@ function overviewHTML() {
   const recent = monthExpenses().slice(0, 5);
   return `
     ${onboardingBannerHTML()}
-    <div class="card">${gaugeHTML(spent, totalBudget())}</div>
+    <div class="card hero-gradient">${gaugeHTML(spent, totalBudget())}</div>
     ${categoryPieHTML(spentMap)}
     ${chartHTML()}
     <div class="section-title">الفئات هذا الشهر</div>
@@ -756,7 +763,7 @@ function debtBudgetCardHTML() {
 }
 function debtsHTML() {
   return `
-    <div class="debt-summary">
+    <div class="debt-summary hero-gradient">
       <div class="label">إجمالي المتبقي من الديون</div>
       <div class="value">${fmt(totalDebtRemaining())} <span style="font-size:14px;font-weight:500">ر.س</span></div>
     </div>
@@ -909,17 +916,17 @@ function headerHTML() {
   return `
     <div class="header">
       <div class="header-top">
-        <div class="brand">${icon("wallet", COLORS.gold, 20)} محفظتي</div>
+        <div class="brand">${icon("wallet", COLORS.primary, 20)} محفظتي</div>
         <div class="row" style="gap:8px">
           ${typeof mahfaztiAuthStatusHTML === "function" ? mahfaztiAuthStatusHTML() : ""}
-          <button class="btn btn-ghost" style="background:#ffffff22" onclick="enterGroceries()" title="بقالتي">${icon("shoppingBag", "#fff", 16)}</button>
-          <button class="btn btn-ghost" style="background:#ffffff22" onclick="openSettingsSheet()" title="الإعدادات">${icon("settings", "#fff", 16)}</button>
+          <button class="btn btn-ghost" onclick="enterGroceries()" title="بقالتي">${icon("shoppingBasket", COLORS.secondary, 16)}</button>
+          <button class="btn btn-ghost" onclick="openSettingsSheet()" title="الإعدادات">${icon("settings", COLORS.ink, 16)}</button>
         </div>
       </div>
       <div class="month-nav">
-        <button onclick="changeMonth(-1)">${icon("chevronRight", "#fff", 16)}</button>
+        <button onclick="changeMonth(-1)">${icon("chevronRight", COLORS.ink, 16)}</button>
         <span class="month-label">${monthLabel(state.month)}</span>
-        <button onclick="changeMonth(1)" ${atCurrentCycle ? "disabled" : ""}>${icon("chevronLeft", "#fff", 16)}</button>
+        <button onclick="changeMonth(1)" ${atCurrentCycle ? "disabled" : ""}>${icon("chevronLeft", COLORS.ink, 16)}</button>
       </div>
     </div>`;
 }

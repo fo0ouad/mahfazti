@@ -185,24 +185,24 @@ function donutChartHTML(entries, total, titleText) {
 /* ---------------- rendering ---------------- */
 function groceryHeaderHTML() {
   return `
-    <div class="header" style="background:${COLORS.success}">
+    <div class="header">
       <div class="header-top">
-        <div class="brand">${icon("shoppingBag", "#fff", 20)} بقالتي</div>
-        <button class="btn btn-ghost" style="background:#ffffff22" onclick="exitGroceries()">${icon("chevronRight", "#fff", 16)} رجوع لمحفظتي</button>
+        <div class="brand">${icon("shoppingBasket", COLORS.secondary, 20)} بقالتي</div>
+        <button class="btn btn-ghost" onclick="exitGroceries()">${icon("chevronRight", COLORS.ink, 16)} رجوع لمحفظتي</button>
       </div>
     </div>`;
 }
 function groceryNavHTML() {
   const tabs = [
     { id: "overview", label: "نظرة عامة", icon: "wallet" },
-    { id: "products", label: "المنتجات", icon: "shoppingBag" },
+    { id: "products", label: "المنتجات", icon: "shoppingBasket" },
     { id: "history", label: "السجل", icon: "receipt" },
   ];
   return `
     <div class="bottom-nav">
       ${tabs.map((t) => `
         <button class="nav-btn ${groceryTab === t.id ? "active" : ""}" onclick='setGroceryTab(${JSON.stringify(t.id)})'>
-          ${icon(t.icon, groceryTab === t.id ? COLORS.success : COLORS.sub, 19)}
+          ${icon(t.icon, groceryTab === t.id ? COLORS.secondary : COLORS.sub, 19)}
           <span>${t.label}</span>
         </button>`).join("")}
     </div>`;
@@ -255,15 +255,15 @@ function groceryOverviewHTML() {
   const recent = groceryData.items.slice(0, 5);
   return `
     ${!groceryData.items.length ? `
-    <div class="card" style="background:${COLORS.ink};color:#fff">
+    <div class="card" style="background:${COLORS.secondary};color:#fff">
       <div style="font-family:'Cairo',sans-serif;font-weight:700;font-size:15px;margin-bottom:8px">🛒 ابدأ تتبع بقالتك</div>
       <div style="font-size:13px;line-height:1.8;color:#ffffffd9;margin-bottom:12px">عندك بيانات سابقة من Notion (${GROCERY_SEED.length} عنصر) — تقدر تستوردها دفعة وحدة، أو تبدأ تسجيل يدوي من الصفر.</div>
-      <button class="btn btn-gold" onclick="importGrocerySeed()">استيراد بيانات Notion</button>
+      <button class="btn" style="background:#fff;color:${COLORS.secondary};padding:9px 16px;font-size:13px;font-weight:700" onclick="importGrocerySeed()">استيراد بيانات Notion</button>
     </div>` : ""}
-    <div class="card">
-      <div class="section-title" style="margin-top:0">مصروف هذا الشهر</div>
-      <div style="font-family:'Cairo',sans-serif;font-weight:800;font-size:26px">${fmt(total)} <small style="font-size:13px;color:${COLORS.sub};font-weight:500">ر.س</small></div>
-      <div style="font-size:12px;color:${COLORS.sub};margin-top:4px">${items.length} عملية شراء</div>
+    <div class="card" style="background:${COLORS.secondaryTint};border-color:transparent">
+      <div class="section-title" style="margin-top:0">إجمالي مشتريات هذا الشهر</div>
+      <div style="font-family:'Cairo',sans-serif;font-weight:800;font-size:26px;color:${COLORS.secondary}">${fmt(total)} <small style="font-size:13px;color:${COLORS.ink};font-weight:500">ر.س</small></div>
+      <div style="font-size:12px;color:${COLORS.ink};margin-top:4px;opacity:.7">${items.length} عملية شراء</div>
     </div>
     ${groceryBudgetCardHTML(total)}
     ${donutChartHTML(catEntries, total, "التوزيع حسب الفئة")}
@@ -381,7 +381,7 @@ function renderGroceries() {
     <div class="content">${body}</div>
     <div class="fab-row">
       <button class="fab-secondary" onclick="openGroceryImportSheet()">${icon("clipboard", "#fff", 15)} استيراد قائمة</button>
-      <button class="fab" style="background:${COLORS.success};color:#fff" onclick="openAddGroceryItemSheet()">${icon("plus", "#fff", 16)} إضافة عنصر</button>
+      <button class="fab" style="background:${COLORS.secondary};color:#fff" onclick="openAddGroceryItemSheet()">${icon("plus", "#fff", 16)} إضافة عنصر</button>
     </div>
     ${groceryNavHTML()}
   `;

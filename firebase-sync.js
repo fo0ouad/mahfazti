@@ -112,10 +112,10 @@ window.mahfaztiSignOutConfirm = function () {
 
 window.mahfaztiAuthStatusHTML = function () {
   if (!currentUser) {
-    return `<button class="btn btn-ghost" style="background:#ffffff22" onclick="mahfaztiSignIn()" title="تسجيل الدخول بقوقل لحفظ بياناتك بالسحابة">${window.icon("cloud", "#fff", 16)}</button>`;
+    return `<button class="btn btn-ghost" onclick="mahfaztiSignIn()" title="تسجيل الدخول بقوقل لحفظ بياناتك بالسحابة">${window.icon("cloud", window.COLORS.ink, 16)}</button>`;
   }
   const label = currentUser.email || currentUser.displayName || "متصل";
-  return `<button class="btn btn-ghost" style="background:#ffffff22" onclick="mahfaztiSignOutConfirm()" title="${window.esc(label)} — متصل بالسحابة، اضغط لتسجيل الخروج">${window.icon("cloudCheck", "#fff", 16)}</button>`;
+  return `<button class="btn btn-ghost" onclick="mahfaztiSignOutConfirm()" title="${window.esc(label)} — متصل بالسحابة، اضغط لتسجيل الخروج">${window.icon("cloudCheck", window.COLORS.primary, 16)}</button>`;
 };
 
 /* hook every local save into a debounced cloud push, without touching app.js/groceries.js's own save logic */
