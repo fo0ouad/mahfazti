@@ -17,7 +17,7 @@ const DEFAULT_CATEGORIES = [
   { id: "other", name: "أخرى", icon: "moreHorizontal", color: "#6B6456", budget: 200 },
 ];
 
-const DEFAULT_SETTINGS = { cycleStartDay: 1 };
+const DEFAULT_SETTINGS = { cycleStartDay: 1, overallBudget: DEFAULT_CATEGORIES.reduce((s, c) => s + c.budget, 0) };
 
 /* ---------------- icons (feather-style inline svg) ---------------- */
 function svg(inner, color, size) {
@@ -45,6 +45,15 @@ const ICONS = {
   settings: (c, s) => svg(`<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>`, c, s),
   barChart: (c, s) => svg(`<path d="M4 20V10M12 20V4M20 20v-7"/>`, c, s),
   clipboard: (c, s) => svg(`<rect x="7" y="3" width="10" height="4" rx="1"/><path d="M8 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-2"/><path d="M9 12h6M9 16h6"/>`, c, s),
+  graduationCap: (c, s) => svg(`<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 2.5 3 6 3s6-1.5 6-3v-5"/>`, c, s),
+  home: (c, s) => svg(`<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/>`, c, s),
+  film: (c, s) => svg(`<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>`, c, s),
+  send: (c, s) => svg(`<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-9Z"/>`, c, s),
+  gift: (c, s) => svg(`<rect x="3" y="8" width="18" height="13" rx="1"/><path d="M12 8v13M3 12h18"/><path d="M12 8c-1.6 0-3-1-3-2.5S10.2 3 12 5c1.8-2 3-1 3 .5S13.6 8 12 8Z"/>`, c, s),
+  smartphone: (c, s) => svg(`<rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/>`, c, s),
+  coffee: (c, s) => svg(`<path d="M4 8h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8Z"/><path d="M17 9h1.5a2.5 2.5 0 0 1 0 5H17"/>`, c, s),
+  fuel: (c, s) => svg(`<path d="M4 21V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v15"/><path d="M3 21h12"/><path d="M14 8h2l3 3v6a1.5 1.5 0 0 1-3 0v-2a1.5 1.5 0 0 0-1.5-1.5H14"/>`, c, s),
+  piggyBank: (c, s) => svg(`<path d="M11 5c-4 0-7 2.5-7 6 0 1.6.7 3 1.8 4.1L5 18h3l.7-1c.7.2 1.5.3 2.3.3s1.6-.1 2.3-.3l.7 1h3l-.8-2.9C18.3 14 19 12.6 19 11c0-.7-.1-1.3-.4-1.9L21 8l-2-1-1.2 1.2C16.4 6.7 13.9 5 11 5Z"/><circle cx="8" cy="10" r="1"/>`, c, s),
 };
 function icon(name, color, size = 20) {
   return (ICONS[name] || ICONS.moreHorizontal)(color, size);
@@ -400,9 +409,47 @@ function weeklyMiniHTML(cat) {
     </div>`;
 }
 
+function allocationCardHTML() {
+  const overall = state.data.settings.overallBudget || 0;
+  const allocated = totalBudget();
+  const remaining = overall - allocated;
+  const over = remaining < 0;
+  const pct = overall > 0 ? (allocated / overall) * 100 : 0;
+  let note;
+  if (overall <= 0) note = "حدد ميزانيتك الشهرية الكاملة عشان تعرف كم باقي بدون توزيع على الفئات";
+  else if (over) note = `وزعت على الفئات ${fmt(allocated)} ر.س — تجاوزت الميزانية الكاملة بـ ${fmt(-remaining)} ر.س`;
+  else if (remaining === 0) note = `وزعت كامل الميزانية على فئاتك (${fmt(allocated)} ر.س)`;
+  else note = `وزعت ${fmt(allocated)} من ${fmt(overall)} ر.س على الفئات — باقي ${fmt(remaining)} ر.س ما توزع بعد`;
+  return `
+    <div class="card" style="margin-top:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+        <div class="section-title" style="margin:0">الميزانية الشهرية الكاملة</div>
+        <button class="btn btn-ghost" onclick="openOverallBudgetSheet()">${icon("pencil", COLORS.sub, 13)}</button>
+      </div>
+      <div style="font-family:'Cairo',sans-serif;font-weight:800;font-size:26px;margin:6px 0 10px">${fmt(overall)} <small style="font-size:13px;color:${COLORS.sub};font-weight:500">ر.س</small></div>
+      ${progressBar(pct, over ? COLORS.danger : COLORS.success)}
+      <div style="font-size:12.5px;margin-top:8px;color:${over ? COLORS.danger : COLORS.sub}">${note}</div>
+    </div>`;
+}
+function openOverallBudgetSheet() {
+  const body = `
+    <div class="field"><label>الميزانية الشهرية الكاملة (ر.س)</label><input id="f-overall" type="number" inputmode="decimal" value="${state.data.settings.overallBudget || ""}" placeholder="مثال: 6000"/></div>
+    <div style="font-size:12px;color:${COLORS.sub};margin:-8px 0 16px;line-height:1.7">هذا إجمالي المبلغ اللي تبي توزعه على فئاتك كل شهر (دخلك مثلاً). بعد ما تحفظه، وزّع منه على فئاتك من ميزانية كل فئة أدناه.</div>
+    <button class="btn btn-primary btn-block" onclick="saveOverallBudget()">${icon("check", "#fff", 16)} حفظ</button>
+  `;
+  openSheetShell("الميزانية الشهرية الكاملة", body);
+}
+function saveOverallBudget() {
+  const val = parseFloat(document.getElementById("f-overall").value);
+  state.data.settings.overallBudget = isNaN(val) || val < 0 ? 0 : val;
+  saveData();
+  closeSheet(); render();
+}
+
 function categoriesHTML() {
   const spentMap = spentByCategory();
   return `
+    ${allocationCardHTML()}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px">
       <div class="section-title" style="margin:0">الفئات وميزانياتها</div>
       <button class="btn btn-primary" onclick="openCategorySheet(null)">${icon("plus", "#fff", 14)} فئة جديدة</button>
@@ -772,7 +819,10 @@ function confirmSmsExpense(merchant) {
 }
 
 /* -- add/edit category -- */
-const ICON_CHOICES = ["utensils", "car", "receipt", "shoppingBag", "heartPulse", "moreHorizontal", "creditCard", "wallet"];
+const ICON_CHOICES = [
+  "utensils", "car", "receipt", "shoppingBag", "heartPulse", "moreHorizontal", "creditCard", "wallet",
+  "graduationCap", "home", "film", "send", "gift", "smartphone", "coffee", "fuel", "piggyBank",
+];
 const COLOR_CHOICES = ["#C97B3D", "#3E6B8A", "#8C5B8F", "#B3483B", "#3E7C5A", "#6B6456", "#C99A3A", "#1B3B34"];
 function openCategorySheet(catId) {
   const cat = catId ? state.data.categories.find((c) => c.id === catId) : null;
