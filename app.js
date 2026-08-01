@@ -1252,6 +1252,9 @@ function appSidebarHTML() {
       ${budgetLinks.map((l) => sidebarLinkHTML(l, mode === "budget" && state.tab === l.tab, "budget")).join("")}
       <div class="sidebar-section-label">بقالتي</div>
       ${groceryLinks.map((l) => sidebarLinkHTML(l, mode === "groceries" && groceryActiveTab === l.tab, "grocery")).join("")}
+      <div class="sidebar-link" style="color:${COLORS.ink};margin-top:8px" onclick="openSettingsSheet()">
+        ${icon("settings", COLORS.sub, 16)}<span>الإعدادات</span>
+      </div>
       <div class="sidebar-footer">${typeof mahfaztiSidebarFooterHTML === "function" ? mahfaztiSidebarFooterHTML() : ""}</div>
     </div>`;
 }
@@ -1293,7 +1296,17 @@ function openSheetShell(title, bodyHTML) {
 /* -- settings + budgeting first-steps -- */
 function openSettingsSheet() {
   const startDay = getCycleStartDay();
+  const overall = state.data.settings.overallBudget || 0;
+  const allocated = totalBudget() + (state.data.settings.debtBudget || 0) + (state.data.settings.savingsBudget || 0);
+  const remaining = overall - allocated;
+  let budgetNote;
+  if (overall <= 0) budgetNote = "ما حددت ميزانيتك الشهرية الكاملة بعد";
+  else if (remaining < 0) budgetNote = `وزعت ${fmt(allocated)} ر.س — تجاوزت الميزانية الكاملة بـ ${fmt(-remaining)} ر.س`;
+  else if (remaining === 0) budgetNote = `وزعت كامل الميزانية (${fmt(allocated)} ر.س)`;
+  else budgetNote = `وزعت ${fmt(allocated)} من ${fmt(overall)} ر.س — باقي ${fmt(remaining)} ر.س ما توزع بعد`;
+
   const body = `
+    <div class="section-title" style="margin-top:0">دورة شهرك المالي</div>
     <div class="field">
       <label>يبدأ شهرك المالي من يوم</label>
       <select id="f-startday">
@@ -1301,15 +1314,26 @@ function openSettingsSheet() {
       </select>
     </div>
     <div style="font-size:12px;color:${COLORS.sub};margin:-8px 0 16px;line-height:1.7">
-      اختر ١ لو تبدأ ميزانيتك مع بداية الشهر الميلادي. لو راتبك يوصل يوم ٢٥ مثلاً، اختر ٢٥ — بيصير شهرك المالي من ٢٥ هذا الشهر إلى ٢٤ الشهر اللي بعده، وبتقدر تسوي كذا من أي يوم بديت فيه.
+      اختر ١ لو تبدأ ميزانيتك مع بداية الشهر الميلادي. لو راتبك يوصل يوم ٢٥ مثلاً، اختر ٢٥ — بيصير شهرك المالي من ٢٥ هذا الشهر إلى ٢٤ الشهر اللي بعده.
     </div>
-    <button class="btn btn-primary btn-block" onclick="saveSettings()">${icon("check", "#fff", 16)} حفظ</button>
-    <div class="section-title">خطوات إعداد ميزانيتك الشهرية</div>
+    <button class="btn btn-primary btn-block" onclick="saveSettings()">${icon("check", "#fff", 16)} حفظ يوم البداية</button>
+
+    <div class="section-title">إعداد الميزانية</div>
+    <div style="font-size:13px;color:${COLORS.sub};margin-bottom:10px;line-height:1.8">${budgetNote}</div>
+    <button class="btn btn-block" style="background:${COLORS.paper};color:${COLORS.ink}" onclick="openBudgetSetupSheet()">${icon("settings", COLORS.ink, 15)} إعداد الميزانية الكاملة (الفئات، الديون، التوفير)</button>
+
+    <div class="section-title">حسابك ومزامنة بياناتك</div>
+    ${typeof mahfaztiSettingsSectionHTML === "function" ? mahfaztiSettingsSectionHTML() : `<div style="font-size:13px;color:${COLORS.sub};line-height:1.8">تعذر تحميل خدمة المزامنة — بياناتك تُحفظ على هذا الجهاز فقط.</div>`}
+
+    <div class="section-title">كيف تستخدم محفظتي صح</div>
     <ol style="font-size:13px;color:${COLORS.ink};padding-inline-start:18px;line-height:1.9;margin:0">
-      <li>حدد يوم بداية شهرك المالي فوق (١ لبداية الشهر، أو يوم استلام راتبك لو بديت من نص الشهر)</li>
-      <li>روح تبويب "الفئات" وحدد/عدّل الميزانية الشهرية لكل فئة — هذي الميزانية تتكرر تلقائياً كل شهر</li>
-      <li>سجّل مصاريفك أول بأول — يدوياً من زر "إضافة مصروف"، أو بلصق رسالة تنبيه البنك مباشرة</li>
-      <li>تابع تقدمك الأسبوعي (يظهر تحت كل فئة) والشهري من "نظرة عامة"، وقارن بين الأشهر من "تقارير"</li>
+      <li>حدد يوم بداية شهرك المالي فوق</li>
+      <li>وزّع ميزانيتك الشهرية الكاملة على الفئات وسداد الديون والتوفير من "إعداد الميزانية الكاملة" فوق، أو عدّل كل فئة لحالها من تبويب "الفئات"</li>
+      <li>سجّل مصاريفك أول بأول — يدوياً، بلصق رسالة تنبيه البنك، أو بإرسال صورة الفاتورة لي بالمحادثة لو تبي تفريغها لبقالتي</li>
+      <li>بقالتي قسم مستقل لتتبع مشترياتك وأسعار المنتجات ومقارنة المتاجر — يفتح من الأيقونة 🧺 فوق</li>
+      <li>حافظ على سلسلتك 🔥 بتسجيل عملية كل يوم — تظهر فوق أول ما تبدأ</li>
+      <li>تابع تقدمك الأسبوعي لكل فئة، والشهري من "نظرة عامة"، وقارن بين الأشهر من "تقارير"</li>
+      <li>سجّل دخول بقوقل فوق عشان بياناتك تتحفظ بالسحابة وتوصلها من أي جهاز</li>
     </ol>
     ${state.data.settings.onboardingDismissed ? `<button class="btn btn-ghost" style="margin-top:14px;width:100%;justify-content:center;padding:9px" onclick="restoreOnboarding()">إظهار دليل البدء في الصفحة الرئيسية مرة ثانية</button>` : ""}
   `;

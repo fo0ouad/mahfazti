@@ -198,6 +198,8 @@ body{
 .chart-bar{width:100%;border-radius:6px 6px 0 0;background:var(--ink);transition:height .4s ease;}
 .chart-col-label{font-size:10px;color:var(--sub);margin-top:6px;}
 
+.sidebar-avatar{width:34px;height:34px;border-radius:999px;background:var(--primary-tint);color:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+
 /* ---------------- desktop / laptop layout ---------------- */
 .app-sidebar{display:none;}
 .page-title-row{display:none;}
@@ -215,7 +217,6 @@ body{
   .sidebar-link{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;font-size:14px;font-weight:500;cursor:pointer;transition:background .15s;}
   .sidebar-link:hover{background:var(--surface-muted);}
   .sidebar-footer{margin-top:auto;display:flex;align-items:center;gap:10px;padding:14px 6px 0;border-top:1px solid var(--border);}
-  .sidebar-avatar{width:34px;height:34px;border-radius:999px;background:var(--primary-tint);color:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
 
   .app-main{flex:1;min-width:0;padding:32px 40px;}
   .header{display:none;}

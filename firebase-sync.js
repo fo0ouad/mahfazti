@@ -114,6 +114,23 @@ window.mahfaztiSidebarFooterHTML = function () {
     <button class="btn btn-ghost" onclick="mahfaztiSignOutConfirm()" title="تسجيل الخروج">${window.icon("x", window.COLORS.sub, 13)}</button>`;
 };
 
+window.mahfaztiSettingsSectionHTML = function () {
+  if (!currentUser) {
+    return `
+      <div style="font-size:13px;color:${window.COLORS.sub};line-height:1.8;margin-bottom:12px">بياناتك محفوظة على هذا الجهاز بس. سجّل دخول بقوقل عشان تنحفظ بالسحابة وتقدر تفتحها من أي جهاز.</div>
+      <button class="btn btn-primary btn-block" onclick="mahfaztiSignIn()">${window.icon("cloud", "#fff", 16)} تسجيل الدخول بقوقل</button>`;
+  }
+  return `
+    <div class="row" style="gap:10px">
+      <div class="sidebar-avatar">${window.esc((currentUser.displayName || currentUser.email || "؟").trim().charAt(0).toUpperCase())}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:700;color:${window.COLORS.ink}">${window.esc(currentUser.displayName || "متصل")}</div>
+        <div style="font-size:12px;color:${window.COLORS.sub}">${window.esc(currentUser.email || "")} — بياناتك تتزامن تلقائياً</div>
+      </div>
+      <button class="btn btn-ghost" style="width:auto;height:auto;padding:8px 14px;font-size:12.5px;white-space:nowrap" onclick="mahfaztiSignOutConfirm()">تسجيل خروج</button>
+    </div>`;
+};
+
 window.mahfaztiSignIn = async function () {
   try {
     await signInWithPopup(auth, provider);
