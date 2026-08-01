@@ -60,6 +60,8 @@ const ICONS = {
   coffee: (c, s) => svg(`<path d="M4 8h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8Z"/><path d="M17 9h1.5a2.5 2.5 0 0 1 0 5H17"/>`, c, s),
   fuel: (c, s) => svg(`<path d="M4 21V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v15"/><path d="M3 21h12"/><path d="M14 8h2l3 3v6a1.5 1.5 0 0 1-3 0v-2a1.5 1.5 0 0 0-1.5-1.5H14"/>`, c, s),
   piggyBank: (c, s) => svg(`<path d="M11 5c-4 0-7 2.5-7 6 0 1.6.7 3 1.8 4.1L5 18h3l.7-1c.7.2 1.5.3 2.3.3s1.6-.1 2.3-.3l.7 1h3l-.8-2.9C18.3 14 19 12.6 19 11c0-.7-.1-1.3-.4-1.9L21 8l-2-1-1.2 1.2C16.4 6.7 13.9 5 11 5Z"/><circle cx="8" cy="10" r="1"/>`, c, s),
+  cloud: (c, s) => svg(`<path d="M7 18a4.5 4.5 0 0 1-1-8.9A5.5 5.5 0 0 1 16.9 8.2 4 4 0 0 1 17.5 16"/><path d="M7 18h10.5"/>`, c, s),
+  cloudCheck: (c, s) => svg(`<path d="M7 17a4.5 4.5 0 0 1-1-8.9A5.5 5.5 0 0 1 16.9 7.2 4 4 0 0 1 17.5 15"/><path d="M7 17h10.5"/><path d="M9.5 12.5l2 2 3.5-4"/>`, c, s),
 };
 function icon(name, color, size = 20) {
   return (ICONS[name] || ICONS.moreHorizontal)(color, size);
@@ -200,6 +202,10 @@ function totalDebtRemaining() {
 }
 
 /* ---------------- mutations ---------------- */
+/* bridge for firebase-sync.js (a module script, can't see this file's `let state` binding directly) */
+function __getBudgetState() { return state.data; }
+function __setBudgetState(data) { state.data = data; state.month = cycleNow(); }
+
 function addExpense(exp) { state.data.expenses.unshift({ id: uid(), ...exp }); saveData(); }
 function updateExpense(id, patch) {
   state.data.expenses = state.data.expenses.map((e) => (e.id === id ? { ...e, ...patch } : e));
@@ -905,6 +911,7 @@ function headerHTML() {
       <div class="header-top">
         <div class="brand">${icon("wallet", COLORS.gold, 20)} محفظتي</div>
         <div class="row" style="gap:8px">
+          ${typeof mahfaztiAuthStatusHTML === "function" ? mahfaztiAuthStatusHTML() : ""}
           <button class="btn btn-ghost" style="background:#ffffff22" onclick="enterGroceries()" title="بقالتي">${icon("shoppingBag", "#fff", 16)}</button>
           <button class="btn btn-ghost" style="background:#ffffff22" onclick="openSettingsSheet()" title="الإعدادات">${icon("settings", "#fff", 16)}</button>
         </div>

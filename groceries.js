@@ -106,6 +106,10 @@ function exitGroceries() {
   render();
 }
 
+/* bridge for firebase-sync.js (a module script, can't see this file's `let groceryData` binding directly) */
+function __getGroceryState() { return groceryData; }
+function __setGroceryState(data) { groceryData = data; }
+
 /* ---------------- mutations ---------------- */
 function addGroceryItem(it) { groceryData.items.unshift({ id: uid(), ...it }); saveGroceryData(); }
 function updateGroceryItem(id, patch) {
