@@ -17,6 +17,8 @@ const DEFAULT_CATEGORIES = [
   { id: "other", name: "أخرى", icon: "moreHorizontal", color: "#6B6456", budget: 200 },
 ];
 
+const DEFAULT_SETTINGS = { cycleStartDay: 1 };
+
 /* ---------------- icons (feather-style inline svg) ---------------- */
 function svg(inner, color, size) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
@@ -40,6 +42,9 @@ const ICONS = {
   pencil: (c, s) => svg(`<path d="M4 20l1-4L16 5l3 3L8 19l-4 1z"/>`, c, s),
   trendingUp: (c, s) => svg(`<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>`, c, s),
   alertTriangle: (c, s) => svg(`<path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17.5v.1"/>`, c, s),
+  settings: (c, s) => svg(`<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>`, c, s),
+  barChart: (c, s) => svg(`<path d="M4 20V10M12 20V4M20 20v-7"/>`, c, s),
+  clipboard: (c, s) => svg(`<rect x="7" y="3" width="10" height="4" rx="1"/><path d="M8 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-2"/><path d="M9 12h6M9 16h6"/>`, c, s),
 };
 function icon(name, color, size = 20) {
   return (ICONS[name] || ICONS.moreHorizontal)(color, size);
@@ -50,9 +55,7 @@ function iconBadge(name, color, size = 20) {
 
 /* ---------------- helpers ---------------- */
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
-function ymNow() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
 const MONTH_NAMES = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
-function monthLabel(ym) { const [y, m] = ym.split("-").map(Number); return `${MONTH_NAMES[m - 1]} ${y}`; }
 function shiftMonth(ym, delta) {
   let [y, m] = ym.split("-").map(Number);
   m += delta;
@@ -64,11 +67,79 @@ function fmt(n) { return new Intl.NumberFormat("ar-SA", { maximumFractionDigits:
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 function esc(str) { return String(str ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
+/* ---------------- budget cycle (supports starting mid-month, keeps working forever) ---------------- */
+function getCycleStartDay() { return (state.data.settings && state.data.settings.cycleStartDay) || 1; }
+function cycleKeyForDate(dateISO) {
+  const d = new Date(dateISO + "T00:00:00");
+  const startDay = getCycleStartDay();
+  let y = d.getFullYear(), m = d.getMonth() + 1;
+  if (d.getDate() < startDay) { m -= 1; if (m < 1) { m = 12; y -= 1; } }
+  return `${y}-${String(m).padStart(2, "0")}`;
+}
+function cycleNow() { return cycleKeyForDate(todayISO()); }
+function cycleRange(key) {
+  const [y, m] = key.split("-").map(Number);
+  const startDay = getCycleStartDay();
+  const start = new Date(y, m - 1, startDay);
+  const end = new Date(y, m, startDay);
+  return { start, end };
+}
+function dateInCycle(dateISO, key) {
+  const { start, end } = cycleRange(key);
+  const d = new Date(dateISO + "T00:00:00");
+  return d >= start && d < end;
+}
+function monthLabel(ym) {
+  const [y, m] = ym.split("-").map(Number);
+  if (getCycleStartDay() === 1) return `${MONTH_NAMES[m - 1]} ${y}`;
+  const { start, end } = cycleRange(ym);
+  const endInclusive = new Date(end);
+  endInclusive.setDate(endInclusive.getDate() - 1);
+  const short = (d) => `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`;
+  return `${short(start)} – ${short(endInclusive)} ${endInclusive.getFullYear()}`;
+}
+function cycleWeeks(key) {
+  const { start, end } = cycleRange(key);
+  const totalDays = Math.round((end - start) / 86400000);
+  const base = Math.floor(totalDays / 4);
+  let cursor = new Date(start);
+  const weeks = [];
+  for (let i = 0; i < 4; i++) {
+    const days = i === 3 ? (totalDays - base * 3) : base;
+    const wStart = new Date(cursor);
+    const wEnd = new Date(cursor); wEnd.setDate(wEnd.getDate() + days);
+    weeks.push({ start: wStart, end: wEnd });
+    cursor = wEnd;
+  }
+  return weeks;
+}
+function categoryWeeklyStatus(cat, key) {
+  const weeks = cycleWeeks(key);
+  const weeklyBudget = (cat.budget || 0) / 4;
+  const today = new Date(todayISO() + "T00:00:00");
+  const exps = state.data.expenses.filter((e) => e.categoryId === cat.id && dateInCycle(e.date, key));
+  return weeks.map((w, i) => {
+    const spent = exps
+      .filter((e) => { const d = new Date(e.date + "T00:00:00"); return d >= w.start && d < w.end; })
+      .reduce((s, e) => s + e.amount, 0);
+    let status;
+    if (today < w.start) status = "upcoming";
+    else if (today >= w.end) status = spent <= weeklyBudget ? "done-ok" : "done-over";
+    else {
+      const totalDays = Math.max(1, Math.round((w.end - w.start) / 86400000));
+      const elapsed = Math.min(totalDays, Math.max(1, Math.round((today - w.start) / 86400000) + 1));
+      const expected = weeklyBudget * (elapsed / totalDays);
+      status = spent <= expected * 1.15 ? "on-track" : "over";
+    }
+    return { index: i + 1, spent, budget: weeklyBudget, status };
+  });
+}
+
 /* ---------------- state ---------------- */
 let state = {
-  data: { categories: DEFAULT_CATEGORIES, expenses: [], debts: [] },
+  data: { categories: DEFAULT_CATEGORIES, expenses: [], debts: [], settings: DEFAULT_SETTINGS, merchantMap: {} },
   tab: "overview",
-  month: ymNow(),
+  month: null,
 };
 
 function loadData() {
@@ -80,6 +151,8 @@ function loadData() {
         categories: parsed.categories || DEFAULT_CATEGORIES,
         expenses: parsed.expenses || [],
         debts: parsed.debts || [],
+        settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) },
+        merchantMap: parsed.merchantMap || {},
       };
     }
   } catch (e) { /* keep defaults */ }
@@ -90,7 +163,7 @@ function saveData() {
 }
 
 /* ---------------- derived ---------------- */
-function monthExpenses() { return state.data.expenses.filter((e) => e.date.startsWith(state.month)); }
+function monthExpenses() { return state.data.expenses.filter((e) => dateInCycle(e.date, state.month)); }
 function totalBudget() { return state.data.categories.reduce((s, c) => s + (c.budget || 0), 0); }
 function spentByCategory() {
   const map = {};
@@ -103,7 +176,7 @@ function last6Months() {
   for (let i = 0; i < 6; i++) { arr.unshift(m); m = shiftMonth(m, -1); }
   return arr.map((ym) => ({
     ym, label: monthLabel(ym).slice(0, 3),
-    total: state.data.expenses.filter((e) => e.date.startsWith(ym)).reduce((s, e) => s + e.amount, 0),
+    total: state.data.expenses.filter((e) => dateInCycle(e.date, ym)).reduce((s, e) => s + e.amount, 0),
   }));
 }
 function totalDebtRemaining() {
@@ -141,6 +214,50 @@ function payDebt(debtId, payment) {
   saveData();
 }
 
+/* ---------------- bank SMS parsing + merchant memory ---------------- */
+function parseBankSMS(text) {
+  const amountMatch =
+    text.match(/(\d[\d,]*(?:\.\d{1,2})?)\s*(?:ريال|ر\.س|SAR|SR)/i) ||
+    text.match(/(?:ريال|ر\.س|SAR|SR)\s*(\d[\d,]*(?:\.\d{1,2})?)/i) ||
+    text.match(/(\d[\d,]*(?:\.\d{1,2})?)/);
+  const amount = amountMatch ? parseFloat(amountMatch[1].replace(/,/g, "")) : null;
+
+  let merchant = null;
+  const merchantMatch = text.match(/(?:لدى|في|Merchant[:：]?|at)\s*([A-Za-z؀-ۿ0-9 &._-]{2,40})/i);
+  if (merchantMatch) {
+    merchant = merchantMatch[1]
+      .replace(/\s+(بتاريخ|تاريخ|الساعة|الوقت|رقم|حساب|بواسطة|SAR|SR|ريال|ر\.س)(?![A-Za-z؀-ۿ]).*/i, "")
+      .trim()
+      .replace(/\s+/g, " ");
+  }
+
+  let date = null;
+  const dateMatch = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  if (dateMatch) {
+    let [, dd, mm, yyyy] = dateMatch;
+    if (yyyy.length === 2) yyyy = "20" + yyyy;
+    date = `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+  }
+  return { amount, merchant, date };
+}
+function findCategoryByMerchant(merchant) {
+  if (!merchant) return null;
+  const norm = merchant.toLowerCase().trim();
+  const map = state.data.merchantMap || {};
+  if (map[norm]) return map[norm];
+  for (const key in map) {
+    if (norm.includes(key) || key.includes(norm)) return map[key];
+  }
+  return null;
+}
+function rememberMerchant(merchant, categoryId) {
+  if (!merchant) return;
+  const norm = merchant.toLowerCase().trim();
+  state.data.merchantMap = state.data.merchantMap || {};
+  state.data.merchantMap[norm] = categoryId;
+  saveData();
+}
+
 function exportCSV() {
   const rows = [["التاريخ", "الفئة", "المبلغ", "ملاحظة"]];
   state.data.expenses.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).forEach((e) => {
@@ -154,7 +271,7 @@ function exportCSV() {
     const paid = (d.payments || []).reduce((s, p) => s + p.amount, 0);
     rows.push([d.name, d.totalAmount, paid, d.totalAmount - paid]);
   });
-  const csv = "\uFEFF" + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+  const csv = "﻿" + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -206,11 +323,27 @@ function chartHTML() {
     </div>`;
 }
 
+function onboardingBannerHTML() {
+  if (state.data.expenses.length > 0) return "";
+  return `
+    <div class="card" style="background:${COLORS.ink};color:#fff">
+      <div style="font-family:'Cairo',sans-serif;font-weight:700;font-size:15px;margin-bottom:8px">👋 ابدأ إعداد ميزانيتك الشهرية</div>
+      <ol style="font-size:13px;line-height:1.9;padding-inline-start:18px;margin:0 0 12px;color:#ffffffd9">
+        <li>حدد يوم بداية شهرك المالي من الإعدادات ⚙️ (١ لبداية الشهر، أو يوم استلام راتبك لو بديت من نص الشهر)</li>
+        <li>روح تبويب "الفئات" وحدد ميزانية شهرية لكل فئة تناسب وضعك</li>
+        <li>سجّل مصاريفك أول بأول — يدوياً أو بلصق رسالة تنبيه البنك مباشرة</li>
+        <li>تابع تقدمك الأسبوعي لكل فئة، والشهري من "نظرة عامة" و"التقارير"</li>
+      </ol>
+      <button class="btn btn-gold" onclick="openSettingsSheet()">ابدأ الإعداد</button>
+    </div>`;
+}
+
 function overviewHTML() {
   const spent = monthExpenses().reduce((s, e) => s + e.amount, 0);
   const spentMap = spentByCategory();
   const recent = monthExpenses().slice(0, 5);
   return `
+    ${onboardingBannerHTML()}
     <div class="card">${gaugeHTML(spent, totalBudget())}</div>
     ${chartHTML()}
     <div class="section-title">الفئات هذا الشهر</div>
@@ -251,6 +384,22 @@ function txRowHTML(e) {
     </div>`;
 }
 
+const WEEK_STATUS_COLOR = { "on-track": COLORS.success, over: COLORS.danger, "done-ok": COLORS.success, "done-over": COLORS.danger, upcoming: COLORS.border };
+const WEEK_STATUS_LABEL = { "on-track": "على المسار", over: "متجاوز", "done-ok": "ملتزم", "done-over": "تجاوزت", upcoming: "قادم" };
+function weeklyMiniHTML(cat) {
+  if (!cat.budget) return `<div style="font-size:11px;color:${COLORS.sub};margin-top:8px">حدد ميزانية للفئة عشان يظهر تتبعها الأسبوعي</div>`;
+  const weeks = categoryWeeklyStatus(cat, state.month);
+  return `
+    <div class="week-strip">
+      ${weeks.map((w) => `
+        <div class="week-seg" style="background:${WEEK_STATUS_COLOR[w.status]}22;border-color:${WEEK_STATUS_COLOR[w.status]}">
+          <span class="week-num">أسبوع ${w.index}</span>
+          <span class="week-amt">${fmt(w.spent)}/${fmt(w.budget)}</span>
+          <span class="week-status" style="color:${WEEK_STATUS_COLOR[w.status]}">${WEEK_STATUS_LABEL[w.status]}</span>
+        </div>`).join("")}
+    </div>`;
+}
+
 function categoriesHTML() {
   const spentMap = spentByCategory();
   return `
@@ -276,6 +425,7 @@ function categoriesHTML() {
             <button class="btn btn-ghost" onclick='deleteCategory(${JSON.stringify(c.id)})'>${icon("trash", COLORS.danger, 13)}</button>
           </div>
           ${progressBar(pct, c.color)}
+          ${weeklyMiniHTML(c)}
         </div>`;
     }).join("")}
   `;
@@ -337,17 +487,109 @@ function historyHTML() {
   `;
 }
 
+/* -- reports: monthly detail + yearly overview -- */
+function reportsHTML() {
+  const view = window.__reportView || "month";
+  return `
+    <div class="row" style="gap:8px;margin:16px 0 4px">
+      <button class="btn ${view === "month" ? "btn-primary" : "btn-ghost"}" style="flex:1;justify-content:center;border-radius:12px" onclick="setReportView('month')">شهري</button>
+      <button class="btn ${view === "year" ? "btn-primary" : "btn-ghost"}" style="flex:1;justify-content:center;border-radius:12px" onclick="setReportView('year')">سنوي</button>
+    </div>
+    ${view === "month" ? monthReportHTML() : yearReportHTML()}
+  `;
+}
+function setReportView(v) { window.__reportView = v; render(); }
+
+function monthReportHTML() {
+  const spentMap = spentByCategory();
+  const spent = monthExpenses().reduce((s, e) => s + e.amount, 0);
+  const budget = totalBudget();
+  const sorted = state.data.categories
+    .map((c) => ({ ...c, spent: spentMap[c.id] || 0 }))
+    .sort((a, b) => b.spent - a.spent);
+  return `
+    <div class="card">
+      <div class="section-title" style="margin-top:0">ملخص ${esc(monthLabel(state.month))}</div>
+      <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px">
+        <span>إجمالي المصروف</span><strong>${fmt(spent)} ر.س</strong>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:${COLORS.sub}">
+        <span>من إجمالي ميزانية الفئات</span><span>${fmt(budget)} ر.س</span>
+      </div>
+    </div>
+    <div class="section-title">الفئات مرتبة حسب الأعلى صرفاً</div>
+    ${sorted.map((c, i) => `
+      <div class="cat-card">
+        <div class="row" style="margin-bottom:8px">
+          <span style="font-family:'Cairo',sans-serif;font-weight:800;color:${COLORS.sub};width:16px">${i + 1}</span>
+          ${iconBadge(c.icon, c.color, 14)}
+          <div style="flex:1">
+            <div class="cat-top"><span class="cat-name">${esc(c.name)}</span><span class="cat-amounts">${fmt(c.spent)} / ${fmt(c.budget)}</span></div>
+            ${progressBar(c.budget > 0 ? (c.spent / c.budget) * 100 : 0, c.color)}
+          </div>
+        </div>
+      </div>`).join("")}
+    ${chartHTML()}
+  `;
+}
+
+function yearReportHTML() {
+  const year = window.__reportYear || Number(state.month.split("-")[0]);
+  window.__reportYear = year;
+  const months = Array.from({ length: 12 }, (_, i) => {
+    const key = `${year}-${String(i + 1).padStart(2, "0")}`;
+    const total = state.data.expenses.filter((e) => dateInCycle(e.date, key)).reduce((s, e) => s + e.amount, 0);
+    return { key, label: MONTH_NAMES[i].slice(0, 3), total };
+  });
+  const yearTotal = months.reduce((s, m) => s + m.total, 0);
+  const max = Math.max(1, ...months.map((m) => m.total));
+  const byCat = {};
+  state.data.expenses.filter((e) => e.date.slice(0, 4) === String(year)).forEach((e) => { byCat[e.categoryId] = (byCat[e.categoryId] || 0) + e.amount; });
+  const topCats = state.data.categories
+    .map((c) => ({ ...c, total: byCat[c.id] || 0 }))
+    .filter((c) => c.total > 0)
+    .sort((a, b) => b.total - a.total);
+  return `
+    <div class="row" style="justify-content:center;gap:14px;margin:14px 0">
+      <button class="btn btn-ghost" onclick="shiftReportYear(-1)">${icon("chevronRight", COLORS.ink, 14)}</button>
+      <span style="font-family:'Cairo',sans-serif;font-weight:700">${year}</span>
+      <button class="btn btn-ghost" onclick="shiftReportYear(1)">${icon("chevronLeft", COLORS.ink, 14)}</button>
+    </div>
+    <div class="card">
+      <div class="section-title" style="margin-top:0">إجمالي صرف ${year}</div>
+      <div style="font-family:'Cairo',sans-serif;font-weight:800;font-size:26px">${fmt(yearTotal)} <small style="font-size:13px;color:${COLORS.sub};font-weight:500">ر.س</small></div>
+      <div class="chart-bars" style="margin-top:16px">
+        ${months.map((m) => `
+          <div class="chart-col">
+            <div class="chart-bar" style="height:${Math.max(4, (m.total / max) * 90)}px" title="${fmt(m.total)} ر.س"></div>
+            <div class="chart-col-label">${m.label}</div>
+          </div>`).join("")}
+      </div>
+    </div>
+    ${topCats.length ? `
+      <div class="section-title">الفئات حسب إجمالي السنة</div>
+      ${topCats.map((c) => `
+        <div class="cat-card"><div class="row">
+          ${iconBadge(c.icon, c.color, 14)}
+          <div style="flex:1"><div class="cat-top"><span class="cat-name">${esc(c.name)}</span><span class="cat-amounts">${fmt(c.total)} ر.س</span></div></div>
+        </div></div>`).join("")}
+    ` : `<div class="empty-state">ماعندك مصاريف مسجلة في ${year}</div>`}
+  `;
+}
+function shiftReportYear(delta) { window.__reportYear = (window.__reportYear || Number(state.month.split("-")[0])) + delta; render(); }
+
 function headerHTML() {
-  const atCurrentMonth = state.month >= ymNow();
+  const atCurrentCycle = state.month >= cycleNow();
   return `
     <div class="header">
       <div class="header-top">
         <div class="brand">${icon("wallet", COLORS.gold, 20)} محفظتي</div>
+        <button class="btn btn-ghost" style="background:#ffffff22" onclick="openSettingsSheet()">${icon("settings", "#fff", 16)}</button>
       </div>
       <div class="month-nav">
         <button onclick="changeMonth(-1)">${icon("chevronRight", "#fff", 16)}</button>
         <span class="month-label">${monthLabel(state.month)}</span>
-        <button onclick="changeMonth(1)" ${atCurrentMonth ? "disabled" : ""}>${icon("chevronLeft", "#fff", 16)}</button>
+        <button onclick="changeMonth(1)" ${atCurrentCycle ? "disabled" : ""}>${icon("chevronLeft", "#fff", 16)}</button>
       </div>
     </div>`;
 }
@@ -356,6 +598,7 @@ function bottomNavHTML() {
   const tabs = [
     { id: "overview", label: "نظرة عامة", icon: "wallet" },
     { id: "categories", label: "الفئات", icon: "shoppingBag" },
+    { id: "reports", label: "تقارير", icon: "barChart" },
     { id: "debts", label: "الديون", icon: "creditCard" },
     { id: "history", label: "السجل", icon: "receipt" },
   ];
@@ -374,13 +617,17 @@ function render() {
   let body = "";
   if (state.tab === "overview") body = overviewHTML();
   else if (state.tab === "categories") body = categoriesHTML();
+  else if (state.tab === "reports") body = reportsHTML();
   else if (state.tab === "debts") body = debtsHTML();
   else if (state.tab === "history") body = historyHTML();
 
   app.innerHTML = `
     ${headerHTML()}
     <div class="content">${body}</div>
-    <button class="fab" onclick="openExpenseSheet()">${icon("plus", COLORS.ink, 18)} إضافة مصروف</button>
+    <div class="fab-row">
+      <button class="fab-secondary" onclick="openSmsSheet()">${icon("clipboard", "#fff", 15)} من رسالة بنكية</button>
+      <button class="fab" onclick="openExpenseSheet()">${icon("plus", COLORS.ink, 16)} إضافة مصروف</button>
+    </div>
     ${bottomNavHTML()}
   `;
 }
@@ -409,6 +656,38 @@ function openSheetShell(title, bodyHTML) {
   document.body.appendChild(overlay);
   document.body.appendChild(sheet);
   return sheet;
+}
+
+/* -- settings + budgeting first-steps -- */
+function openSettingsSheet() {
+  const startDay = getCycleStartDay();
+  const body = `
+    <div class="field">
+      <label>يبدأ شهرك المالي من يوم</label>
+      <select id="f-startday">
+        ${Array.from({ length: 28 }, (_, i) => i + 1).map((d) => `<option value="${d}" ${d === startDay ? "selected" : ""}>${d}</option>`).join("")}
+      </select>
+    </div>
+    <div style="font-size:12px;color:${COLORS.sub};margin:-8px 0 16px;line-height:1.7">
+      اختر ١ لو تبدأ ميزانيتك مع بداية الشهر الميلادي. لو راتبك يوصل يوم ٢٥ مثلاً، اختر ٢٥ — بيصير شهرك المالي من ٢٥ هذا الشهر إلى ٢٤ الشهر اللي بعده، وبتقدر تسوي كذا من أي يوم بديت فيه.
+    </div>
+    <button class="btn btn-primary btn-block" onclick="saveSettings()">${icon("check", "#fff", 16)} حفظ</button>
+    <div class="section-title">خطوات إعداد ميزانيتك الشهرية</div>
+    <ol style="font-size:13px;color:${COLORS.ink};padding-inline-start:18px;line-height:1.9;margin:0">
+      <li>حدد يوم بداية شهرك المالي فوق (١ لبداية الشهر، أو يوم استلام راتبك لو بديت من نص الشهر)</li>
+      <li>روح تبويب "الفئات" وحدد/عدّل الميزانية الشهرية لكل فئة — هذي الميزانية تتكرر تلقائياً كل شهر</li>
+      <li>سجّل مصاريفك أول بأول — يدوياً من زر "إضافة مصروف"، أو بلصق رسالة تنبيه البنك مباشرة</li>
+      <li>تابع تقدمك الأسبوعي (يظهر تحت كل فئة) والشهري من "نظرة عامة"، وقارن بين الأشهر من "تقارير"</li>
+    </ol>
+  `;
+  openSheetShell("الإعدادات وإعداد الميزانية", body);
+}
+function saveSettings() {
+  const startDay = parseInt(document.getElementById("f-startday").value, 10);
+  state.data.settings = { ...state.data.settings, cycleStartDay: startDay };
+  saveData();
+  state.month = cycleNow();
+  closeSheet(); render();
 }
 
 /* -- add expense -- */
@@ -443,6 +722,52 @@ function submitExpense() {
   const categoryId = window.__selectedCat;
   if (!amount || amount <= 0 || !categoryId) { alert("أدخل مبلغ صحيح واختر فئة"); return; }
   addExpense({ amount, categoryId, note, date });
+  closeSheet(); render();
+}
+
+/* -- add expense from a pasted bank SMS -- */
+function openSmsSheet() {
+  const body = `
+    <div class="field"><label>الصق نص رسالة البنك هنا</label><textarea id="f-sms" rows="5" placeholder="مثال: تم خصم مبلغ 85.50 ريال من حسابك لدى ستاربكس بتاريخ 01/08/2026"></textarea></div>
+    <button class="btn btn-primary btn-block" onclick="analyzeSms()">${icon("check", "#fff", 16)} تحليل الرسالة</button>
+  `;
+  openSheetShell("إضافة من رسالة بنكية", body);
+}
+function analyzeSms() {
+  const text = document.getElementById("f-sms").value.trim();
+  if (!text) { alert("الصق نص الرسالة أولاً"); return; }
+  const { amount, merchant, date } = parseBankSMS(text);
+  if (!amount) { alert("ما قدرت أطلع مبلغ من الرسالة — جرب تضيف المصروف يدوياً."); return; }
+  const guessedCatId = findCategoryByMerchant(merchant);
+  openSmsConfirmSheet(amount, merchant, date, guessedCatId);
+}
+function openSmsConfirmSheet(amount, merchant, date, guessedCatId) {
+  window.__selectedCat = guessedCatId || null;
+  const body = `
+    ${merchant ? `<div style="font-size:13px;color:${COLORS.sub};margin-bottom:10px">المتجر المكتشف: <strong style="color:${COLORS.ink}">${esc(merchant)}</strong></div>` : ""}
+    <div class="field"><label>المبلغ (ر.س)</label><input id="f-amount" type="number" inputmode="decimal" value="${amount}"/></div>
+    <div class="field"><label>الفئة ${guessedCatId ? "" : "— اختر واحدة"}</label>
+      <div class="cat-grid" id="cat-grid">
+        ${state.data.categories.map((c) => `
+          <div class="cat-pick ${c.id === guessedCatId ? "selected" : ""}" data-cat="${c.id}" style="--pick-color:${c.color}" onclick="pickExpenseCat(this,'${c.id}')">
+            ${iconBadge(c.icon, c.color, 13)}<span>${esc(c.name)}</span>
+          </div>`).join("")}
+      </div>
+    </div>
+    <div class="field"><label>التاريخ</label><input id="f-date" type="date" value="${date || todayISO()}"/></div>
+    ${merchant ? `<label style="display:flex;align-items:center;gap:8px;font-size:13px;color:${COLORS.sub};margin-bottom:16px"><input type="checkbox" id="f-remember" checked/> تذكر "${esc(merchant)}" لهذي الفئة مستقبلاً</label>` : ""}
+    <button class="btn btn-primary btn-block" onclick='confirmSmsExpense(${JSON.stringify(merchant)})'>${icon("check", "#fff", 16)} تأكيد وحفظ</button>
+  `;
+  openSheetShell(guessedCatId ? "تأكيد المصروف" : "اختر فئة وأكّد", body);
+}
+function confirmSmsExpense(merchant) {
+  const amount = parseFloat(document.getElementById("f-amount").value);
+  const date = document.getElementById("f-date").value || todayISO();
+  const categoryId = window.__selectedCat;
+  if (!amount || amount <= 0 || !categoryId) { alert("أدخل مبلغ صحيح واختر فئة"); return; }
+  addExpense({ amount, categoryId, note: merchant ? `رسالة بنك: ${merchant}` : "", date });
+  const remember = document.getElementById("f-remember");
+  if (merchant && (!remember || remember.checked)) rememberMerchant(merchant, categoryId);
   closeSheet(); render();
 }
 
@@ -531,6 +856,7 @@ function submitPay(debtId) {
 
 /* ---------------- init ---------------- */
 loadData();
+state.month = cycleNow();
 render();
 
 if ("serviceWorker" in navigator) {

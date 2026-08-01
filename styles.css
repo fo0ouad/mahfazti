@@ -99,12 +99,17 @@ body{
 .debt-summary .value{color:#fff;font-size:24px;font-weight:800;font-family:'Cairo',sans-serif;}
 
 /* FAB */
-.fab{
-  position:fixed;bottom:96px;left:50%;transform:translateX(-50%);
-  background:var(--gold);color:var(--ink);border:none;border-radius:999px;
-  padding:14px 26px;font-family:'Cairo',sans-serif;font-weight:700;font-size:14px;
-  display:flex;align-items:center;gap:8px;box-shadow:0 8px 20px rgba(27,59,52,.25);cursor:pointer;z-index:20;
+.fab-row{
+  position:fixed;bottom:96px;left:0;right:0;z-index:20;
+  display:flex;justify-content:center;gap:8px;padding:0 16px;
 }
+.fab, .fab-secondary{
+  border:none;border-radius:999px;cursor:pointer;white-space:nowrap;
+  font-family:'Cairo',sans-serif;font-weight:700;font-size:12.5px;
+  padding:13px 16px;display:flex;align-items:center;gap:6px;
+}
+.fab{background:var(--gold);color:var(--ink);box-shadow:0 8px 20px rgba(27,59,52,.25);}
+.fab-secondary{background:var(--ink);color:#fff;box-shadow:0 8px 20px rgba(27,59,52,.18);}
 
 /* bottom nav */
 .bottom-nav{
@@ -125,10 +130,11 @@ body{
 .sheet-title{font-family:'Cairo',sans-serif;font-weight:700;font-size:17px;}
 .field{margin-bottom:16px;}
 .field label{display:block;font-size:13px;color:var(--sub);margin-bottom:6px;}
-.field input, .field select{
+.field input, .field select, .field textarea{
   width:100%;padding:11px 14px;border-radius:12px;border:1px solid var(--border);
   background:var(--card);color:var(--ink);font-size:15px;font-family:'Tajawal',sans-serif;
 }
+.field textarea{resize:vertical;line-height:1.6;}
 .cat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
 .cat-pick{
   display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 4px;border-radius:14px;
@@ -144,6 +150,13 @@ body{
 .icon-choice.selected{border-color:var(--ink);}
 
 .empty-state{text-align:center;font-size:14px;color:var(--sub);padding:40px 0;}
+
+/* weekly budget tracking strip (per category) */
+.week-strip{display:flex;gap:6px;margin-top:10px;}
+.week-seg{flex:1;min-width:0;border:1px solid;border-radius:10px;padding:6px 3px;text-align:center;}
+.week-num{display:block;font-size:9.5px;color:var(--sub);}
+.week-amt{display:block;font-size:10px;color:var(--ink);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.week-status{display:block;font-size:10.5px;font-weight:700;margin-top:2px;}
 
 .chart-wrap{margin-top:10px;}
 .chart-bars{display:flex;align-items:flex-end;gap:8px;height:110px;}
