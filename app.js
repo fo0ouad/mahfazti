@@ -332,14 +332,7 @@ function parseBankSMS(text) {
     text.match(/(\d[\d,]*(?:\.\d{1,2})?)/);
   const amount = amountMatch ? parseFloat(amountMatch[1].replace(/,/g, "")) : null;
 
-  let merchant = null;
-  const merchantMatch = text.match(/(?:لدى|في|Merchant[:：]?|at)\s*([A-Za-z؀-ۿ0-9 &._-]{2,40})/i);
-  if (merchantMatch) {
-    merchant = merchantMatch[1]
-      .replace(/\s+(بتاريخ|تاريخ|الساعة|الوقت|رقم|حساب|بواسطة|SAR|SR|ريال|ر\.س)(?![A-Za-z؀-ۿ]).*/i, "")
-      .trim()
-      .replace(/\s+/g, " ");
-  }
+  const merchant = extractMerchant(text);
 
   let date = null;
   const dateMatch = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
@@ -349,6 +342,46 @@ function parseBankSMS(text) {
     date = `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
   }
   return { amount, merchant, date };
+}
+/* "لدى"/"من" always mark the merchant explicitly across bank formats; "في" is ambiguous —
+   it introduces the merchant in some formats but the date/time in others, so it's tried last
+   and rejected if what follows looks like a date (starts with a digit) rather than a name. */
+function extractMerchant(text) {
+  const patterns = [
+    /(?:لدى|من)[:：]?\s*([A-Za-z؀-ۿ0-9 &._-]{2,40})/i,
+    /(?:Merchant[:：]?|at)\s*([A-Za-z؀-ۿ0-9 &._-]{2,40})/i,
+    /في[:：]?\s*([A-Za-z؀-ۿ0-9 &._-]{2,40})/i,
+  ];
+  for (const p of patterns) {
+    const m = text.match(p);
+    if (!m) continue;
+    const val = m[1]
+      .replace(/\s+(بتاريخ|تاريخ|الساعة|الوقت|رقم|حساب|بواسطة|SAR|SR|ريال|ر\.س)(?![A-Za-z؀-ۿ]).*/i, "")
+      .trim()
+      .replace(/\s+/g, " ");
+    if (val && !/^\d/.test(val)) return val;
+  }
+  return null;
+}
+/* splits a block of several pasted bank messages (no blank-line separators, back to back)
+   into one chunk per transaction, using the "شراء.../دفع..." opening line each format starts with */
+function splitSmsBatch(text) {
+  const startRe = /^(شراء|دفع)/;
+  const lines = text.split(/\r?\n/);
+  const blocks = [];
+  let current = [];
+  lines.forEach((raw) => {
+    const line = raw.trim();
+    if (!line) return;
+    if (startRe.test(line) && current.length) {
+      blocks.push(current.join("\n"));
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  });
+  if (current.length) blocks.push(current.join("\n"));
+  return blocks;
 }
 function findCategoryByMerchant(merchant) {
   if (!merchant) return null;
@@ -1440,21 +1473,90 @@ function submitExpense() {
   closeSheet(); render();
 }
 
-/* -- add expense from a pasted bank SMS -- */
+/* -- add expense(s) from pasted bank SMS — one message or several stuck together -- */
 function openSmsSheet() {
   const body = `
-    <div class="field"><label>الصق نص رسالة البنك هنا</label><textarea id="f-sms" rows="5" placeholder="مثال: تم خصم مبلغ 85.50 ريال من حسابك لدى ستاربكس بتاريخ 01/08/2026"></textarea></div>
-    <button class="btn btn-primary btn-block" onclick="analyzeSms()">${icon("check", "#fff", 16)} تحليل الرسالة</button>
+    <div class="field"><label>الصق رسالة بنكية وحدة أو عدة رسائل مع بعض</label><textarea id="f-sms" rows="6" placeholder="مثال: شراء عبر POS&#10;مبلغ:SAR 15.00&#10;لدى:...&#10;في:...&#10;&#10;تقدر تلصق كذا رسالة وحدة ورا الثانية"></textarea></div>
+    <button class="btn btn-primary btn-block" onclick="analyzeSms()">${icon("check", "#fff", 16)} تحليل الرسائل</button>
   `;
   openSheetShell("إضافة من رسالة بنكية", body);
 }
 function analyzeSms() {
   const text = document.getElementById("f-sms").value.trim();
   if (!text) { alert("الصق نص الرسالة أولاً"); return; }
-  const { amount, merchant, date } = parseBankSMS(text);
-  if (!amount) { alert("ما قدرت أطلع مبلغ من الرسالة — جرب تضيف المصروف يدوياً."); return; }
-  const guessedCatId = findCategoryByMerchant(merchant);
-  openSmsConfirmSheet(amount, merchant, date, guessedCatId);
+  const parsed = splitSmsBatch(text)
+    .map((block) => parseBankSMS(block))
+    .filter((p) => p.amount);
+  if (!parsed.length) { alert("ما قدرت أطلع مبلغ من الرسائل — جرب تضيف المصروف يدوياً."); return; }
+  if (parsed.length === 1) {
+    const { amount, merchant, date } = parsed[0];
+    const guessedCatId = findCategoryByMerchant(merchant);
+    openSmsConfirmSheet(amount, merchant, date, guessedCatId);
+    return;
+  }
+  window.__smsBatch = parsed.map((p) => ({
+    amount: p.amount,
+    merchant: p.merchant,
+    date: p.date || todayISO(),
+    categoryId: findCategoryByMerchant(p.merchant),
+    include: true,
+  }));
+  openSmsBatchSheet();
+}
+function openSmsBatchSheet() {
+  const body = `
+    <div style="font-size:13px;color:${COLORS.sub};margin-bottom:12px">لقيت ${window.__smsBatch.length} معاملة. راجع الفئات (متوقعة تلقائياً من التجار اللي تتذكرها)، وألغِ تحديد أي وحدة ما تبي تضيفها.</div>
+    <div id="sms-batch-list">${smsBatchListHTML()}</div>
+    <button class="btn btn-primary btn-block" style="margin-top:10px" onclick="confirmSmsBatch()">${icon("check", "#fff", 16)} إضافة المحدد (<span id="sms-batch-count">${window.__smsBatch.filter((r) => r.include).length}</span>)</button>
+  `;
+  openSheetShell("مراجعة المعاملات", body);
+}
+function smsBatchListHTML() {
+  return window.__smsBatch.map((row, i) => `
+    <div class="card" style="padding:12px;margin-bottom:8px;opacity:${row.include ? 1 : 0.45}">
+      <div class="row" style="justify-content:space-between;align-items:flex-start;margin-bottom:8px;gap:8px">
+        <label style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
+          <input type="checkbox" ${row.include ? "checked" : ""} onchange="toggleSmsBatchRow(${i}, this.checked)"/>
+          <div style="min-width:0">
+            <div style="font-size:14px;font-weight:700;color:${COLORS.ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${row.merchant ? esc(row.merchant) : "بدون اسم تاجر"}</div>
+            <div style="font-size:11px;color:${COLORS.sub}">${esc(row.date)}</div>
+          </div>
+        </label>
+        <div style="font-weight:700;color:${COLORS.ink};white-space:nowrap">${fmt(row.amount)} ر.س</div>
+      </div>
+      <div class="cat-grid" style="grid-template-columns:repeat(4,1fr);gap:6px">
+        ${state.data.categories.map((c) => `
+          <div class="cat-pick ${c.id === row.categoryId ? "selected" : ""}" data-cat="${c.id}" style="--pick-color:${c.color}" onclick="setSmsBatchCat(${i},'${c.id}')">
+            ${iconBadge(c.icon, c.color, 12)}<span style="font-size:10.5px">${esc(c.name)}</span>
+          </div>`).join("")}
+      </div>
+      ${!row.categoryId ? `<div style="font-size:11px;color:${COLORS.danger};margin-top:6px">اختر فئة عشان تنضاف</div>` : ""}
+    </div>`).join("");
+}
+function toggleSmsBatchRow(i, checked) {
+  window.__smsBatch[i].include = checked;
+  document.getElementById("sms-batch-list").innerHTML = smsBatchListHTML();
+  updateSmsBatchCount();
+}
+function setSmsBatchCat(i, catId) {
+  window.__smsBatch[i].categoryId = catId;
+  document.getElementById("sms-batch-list").innerHTML = smsBatchListHTML();
+  updateSmsBatchCount();
+}
+function updateSmsBatchCount() {
+  const el = document.getElementById("sms-batch-count");
+  if (el) el.textContent = window.__smsBatch.filter((r) => r.include).length;
+}
+function confirmSmsBatch() {
+  const rows = window.__smsBatch.filter((r) => r.include);
+  if (!rows.length) { alert("ما فيه معاملات محددة"); return; }
+  if (rows.some((r) => !r.categoryId)) { alert("فيه معاملات محددة بدون فئة — اختر فئة لها أو ألغِ تحديدها"); return; }
+  rows.forEach((r) => {
+    addExpense({ amount: r.amount, categoryId: r.categoryId, note: r.merchant ? `رسالة بنك: ${r.merchant}` : "", date: r.date });
+    if (r.merchant) rememberMerchant(r.merchant, r.categoryId);
+  });
+  window.__smsBatch = null;
+  closeSheet(); render();
 }
 function openSmsConfirmSheet(amount, merchant, date, guessedCatId) {
   window.__selectedCat = guessedCatId || null;
