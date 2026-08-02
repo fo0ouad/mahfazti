@@ -4,7 +4,7 @@
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import {
-  getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged,
+  getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
   getFirestore, doc, getDoc, setDoc, serverTimestamp,
@@ -184,16 +184,16 @@ window.mahfaztiSettingsSectionHTML = function () {
 };
 
 window.mahfaztiSignIn = async function () {
-  // signInWithPopup is unreliable on mobile browsers (blocked popups, orphaned tabs, no clear
-  // way back to the app) — redirect navigates away and back instead, which mobile handles
-  // properly. onAuthStateChanged below picks up the result once the page reloads.
+  // signInWithRedirect fails hard ("missing initial state") on mobile browsers with
+  // partitioned storage (iOS Safari, in-app browsers) — a worse failure mode than popup's
+  // occasional awkward UX. Back to popup; the confusing part of the old experience was really
+  // the repeating/destructive merge dialog on top of it, which is already fixed separately.
   try {
-    await signInWithRedirect(auth, provider);
+    await signInWithPopup(auth, provider);
   } catch (e) {
     alert("تعذر تسجيل الدخول: " + (e && e.message ? e.message : e));
   }
 };
-getRedirectResult(auth).catch((e) => console.error("mahfazti: redirect sign-in failed", e));
 window.mahfaztiSignOut = async function () {
   await signOut(auth);
 };
