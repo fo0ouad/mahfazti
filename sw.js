@@ -1,8 +1,13 @@
-const CACHE_NAME = "mahfazti-v1";
+// bumped: the old cache-first strategy below meant a deploy's new files were never seen once
+// cached, no matter how many times we redeployed — bumping the name forces `activate` to purge
+// whatever any visitor's browser was still holding from before this fix.
+const CACHE_NAME = "mahfazti-v2";
 const APP_SHELL = [
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./groceries.js",
+  "./firebase-sync.js",
   "./manifest.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
@@ -23,24 +28,23 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// cache-first for app shell, network-first fallback for everything else (e.g. fonts)
+// network-first: always try to get the live deploy first, so updates show up on the next load
+// instead of being invisibly stuck behind a cache forever. The cache is only a fallback for
+// when the network request fails (offline use), not the default source of truth.
 self.addEventListener("fetch", (event) => {
   const req = event.request;
 
   if (req.method !== "GET") return;
 
   event.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) return cached;
-      return fetch(req)
-        .then((res) => {
-          if (res && res.status === 200 && res.type === "basic" || req.url.includes("fonts")) {
-            const resClone = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, resClone)).catch(() => {});
-          }
-          return res;
-        })
-        .catch(() => cached);
-    })
+    fetch(req)
+      .then((res) => {
+        if (res && res.status === 200 && (res.type === "basic" || req.url.includes("fonts"))) {
+          const resClone = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, resClone)).catch(() => {});
+        }
+        return res;
+      })
+      .catch(() => caches.match(req))
   );
 });
