@@ -12,7 +12,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      # `firebase login:ci` tokens are deprecated and Google now rejects them (401) for many
+      # accounts — a service account key is the current supported way to authenticate CI.
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       - run: npm install -g firebase-tools
-      - run: firebase deploy --only hosting --project mahfazti-4d639 --token "$FIREBASE_TOKEN"
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      - run: firebase deploy --only hosting --project mahfazti-4d639
