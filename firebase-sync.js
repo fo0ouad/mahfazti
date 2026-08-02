@@ -12,7 +12,12 @@ import {
 
 const firebaseConfig = {
   apiKey: "AIzaSyAKEQ5q4egOUTiUeiDMNkRdq2V4fhBQMbo",
-  authDomain: "mahfazti-4d639.firebaseapp.com",
+  // Matches the Firebase Hosting domain (not the default *.firebaseapp.com) so that once the
+  // app itself is served from mahfazti-4d639.web.app, the sign-in flow's storage/cookies are
+  // first-party from Safari's perspective — Firebase Hosting auto-proxies the /__/auth/**
+  // handler paths needed for this to work. This only helps once hosting has actually moved
+  // there; while still on GitHub Pages this domain won't be the page's own origin either.
+  authDomain: "mahfazti-4d639.web.app",
   projectId: "mahfazti-4d639",
   storageBucket: "mahfazti-4d639.firebasestorage.app",
   messagingSenderId: "203469806687",
