@@ -1169,8 +1169,8 @@ function headerHTML() {
         <div class="brand">${icon("wallet", COLORS.primary, 20)} محفظتي ${streakBadgeHTML()}</div>
         <div class="row" style="gap:8px">
           ${typeof mahfaztiAuthStatusHTML === "function" ? mahfaztiAuthStatusHTML() : ""}
-          <button class="btn btn-ghost" onclick="enterGroceries()" title="بقالتي">${icon("shoppingBasket", COLORS.secondary, 16)}</button>
-          <button class="btn btn-ghost" onclick="openSettingsSheet()" title="الإعدادات">${icon("settings", COLORS.ink, 16)}</button>
+          <button class="btn btn-ghost header-icon-btn" onclick="enterGroceries()" title="بقالتي">${icon("shoppingBasket", COLORS.secondary, 20)}</button>
+          <button class="btn btn-ghost header-icon-btn" onclick="openSettingsSheet()" title="الإعدادات">${icon("settings", COLORS.ink, 20)}</button>
         </div>
       </div>
       <div class="month-nav">
