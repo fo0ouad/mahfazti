@@ -101,7 +101,11 @@ function mergeGroceryState(local, cloud) {
   };
 }
 
-const SYNC_RESOLVED_KEY = "mahfazti-sync-resolved-v1";
+// v2: bumped because the resolution logic behind this flag changed (destructive pick-a-winner
+// -> non-destructive merge). A "resolved" flag set under the old logic must not short-circuit
+// the new merge — that would leave a device stuck on stale/incomplete data forever, since the
+// merge that was supposed to fetch the missing cloud data would never run again.
+const SYNC_RESOLVED_KEY = "mahfazti-sync-resolved-v2";
 async function handleSignedIn(user) {
   currentUser = user;
   // Firebase restores the signed-in session on every page load, which re-fires this same
