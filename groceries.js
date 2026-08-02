@@ -82,9 +82,33 @@ function loadGroceryData() {
     const raw = localStorage.getItem(GROCERY_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      groceryData = { items: parsed.items || [], settings: { monthlyBudget: 0, ...(parsed.settings || {}) } };
+      groceryData = { items: parsed.items || [], settings: { monthlyBudget: 0, stores: [...GROCERY_STORES], ...(parsed.settings || {}) } };
     }
   } catch (e) { /* keep defaults */ }
+}
+/* Arabic keyboards (esp. Samsung's) commonly produce "،"/"٫" or Arabic-Indic digits for a
+   decimal price instead of a plain ".", which a type="number" input silently rejects. Price/qty
+   fields use type="text" + inputmode="decimal" instead, and parse through this. */
+function parseDecimal(str) {
+  if (str == null) return NaN;
+  const normalized = String(str)
+    .replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d))
+    .replace(/[٫،,]/g, ".")
+    .trim();
+  return parseFloat(normalized);
+}
+function groceryStoreOptions() {
+  const fromSettings = groceryData.settings.stores || GROCERY_STORES;
+  const fromItems = groceryData.items.map((it) => it.store);
+  return [...new Set([...fromSettings, ...fromItems])].filter(Boolean);
+}
+function rememberGroceryStore(store) {
+  if (!store) return;
+  const list = groceryData.settings.stores || [...GROCERY_STORES];
+  if (!list.includes(store)) {
+    groceryData.settings.stores = [...list, store];
+    saveGroceryData();
+  }
 }
 function saveGroceryData() {
   try { localStorage.setItem(GROCERY_STORAGE_KEY, JSON.stringify(groceryData)); }
@@ -232,13 +256,13 @@ function groceryBudgetCardHTML(spent) {
 }
 function openGroceryBudgetSheet() {
   const body = `
-    <div class="field"><label>الميزانية الشهرية للبقالة (ر.س)</label><input id="g-budget" type="number" inputmode="decimal" value="${groceryData.settings.monthlyBudget || ""}" placeholder="مثال: 1200"/></div>
+    <div class="field"><label>الميزانية الشهرية للبقالة (ر.س)</label><input id="g-budget" type="text" inputmode="decimal" value="${groceryData.settings.monthlyBudget || ""}" placeholder="مثال: 1200"/></div>
     <button class="btn btn-primary btn-block" onclick="saveGroceryBudget()">${icon("check", "#fff", 16)} حفظ</button>
   `;
   openSheetShell("ميزانية البقالة", body);
 }
 function saveGroceryBudget() {
-  const val = parseFloat(document.getElementById("g-budget").value);
+  const val = parseDecimal(document.getElementById("g-budget").value);
   groceryData.settings.monthlyBudget = isNaN(val) || val < 0 ? 0 : val;
   saveGroceryData();
   closeSheet(); renderGroceries();
@@ -300,11 +324,25 @@ function groceryItemRowHTML(it) {
     </div>`;
 }
 
+let groceryProductQuery = "";
 function groceryProductsHTML() {
-  const stats = groceryProductStats();
+  const stats = groceryProductsFiltered();
   return `
-    <div class="section-title" style="margin-top:16px">منتجاتك</div>
-    ${!stats.length ? `<div class="empty-state">ما فيه منتجات مسجلة بعد</div>` : ""}
+    <div class="field" style="margin-top:16px;margin-bottom:6px">
+      <input type="text" placeholder="ابحث عن منتج..." value="${esc(groceryProductQuery)}" oninput="filterGroceryProducts(this.value)"/>
+    </div>
+    <div class="section-title">منتجاتك</div>
+    <div id="grocery-products-list">${groceryProductsListHTML(stats)}</div>
+  `;
+}
+function groceryProductsFiltered() {
+  const q = groceryProductQuery.trim().toLowerCase();
+  const stats = groceryProductStats();
+  return q ? stats.filter((p) => p.product.toLowerCase().includes(q)) : stats;
+}
+function groceryProductsListHTML(stats) {
+  return `
+    ${!stats.length ? `<div class="empty-state">${groceryProductQuery ? "ما فيه منتجات مطابقة للبحث" : "ما فيه منتجات مسجلة بعد"}</div>` : ""}
     ${stats.map((p) => `
       <div class="cat-card" onclick='openProductDetail(${JSON.stringify(p.product)})' style="cursor:pointer">
         <div class="row" style="margin-bottom:2px">
@@ -316,6 +354,10 @@ function groceryProductsHTML() {
         </div>
       </div>`).join("")}
   `;
+}
+function filterGroceryProducts(value) {
+  groceryProductQuery = value;
+  document.getElementById("grocery-products-list").innerHTML = groceryProductsListHTML(groceryProductsFiltered());
 }
 function openProductDetail(product) {
   const stats = groceryProductStats().find((p) => p.product === product);
@@ -389,7 +431,7 @@ function renderGroceries() {
       </div>
       <div class="fab-row">
         <button class="fab-secondary" onclick="openGroceryImportSheet()">${icon("clipboard", "#fff", 15)} استيراد قائمة</button>
-        <button class="fab" style="background:${COLORS.secondary};color:#fff" onclick="openAddGroceryItemSheet()">${icon("plus", "#fff", 16)} إضافة عنصر</button>
+        <button class="fab" style="background:${COLORS.secondary};color:#fff" onclick="openGroceryInvoiceSheet()">${icon("plus", "#fff", 16)} فاتورة جديدة</button>
       </div>
       <div class="content">${body}</div>
     </div>
@@ -397,31 +439,33 @@ function renderGroceries() {
   `;
 }
 
-/* -- add / edit item manually, with autofill from the last time this product was bought -- */
+/* -- edit an existing item (single-row form). New items go through the invoice flow below,
+   which handles the one-item case too — this stays as a focused single-record editor. -- */
 function openAddGroceryItemSheet(editId) {
   const editing = editId ? groceryData.items.find((it) => it.id === editId) : null;
-  const productOptions = [...new Set(groceryData.items.map((it) => it.product))];
   const unitOptions = editing && !GROCERY_UNITS.includes(editing.unit) ? [...GROCERY_UNITS, editing.unit] : GROCERY_UNITS;
-  const storeOptions = editing && !GROCERY_STORES.includes(editing.store) ? [...GROCERY_STORES, editing.store] : GROCERY_STORES;
+  const storeOptions = groceryStoreOptions();
   const body = `
-    <div class="field">
+    <div class="field" style="position:relative">
       <label>اسم المنتج</label>
-      <input id="g-product" list="g-product-list" type="text" placeholder="مثال: تفاح رويال جالا" value="${editing ? esc(editing.product) : ""}" oninput="groceryProductAutofill()"/>
-      <datalist id="g-product-list">${productOptions.map((p) => `<option value="${esc(p)}"></option>`).join("")}</datalist>
+      <input id="g-product" type="text" autocomplete="off" placeholder="مثال: تفاح رويال جالا" value="${editing ? esc(editing.product) : ""}"
+        oninput="groceryProductSearch(this.value)"/>
+      <div id="g-product-suggestions" class="grocery-suggestions"></div>
     </div>
     <div class="field"><label>الفئة</label>
       <select id="g-category">${GROCERY_CATEGORIES.map((c) => `<option value="${esc(c)}" ${editing && editing.category === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
     </div>
     <div class="field"><label>المتجر</label>
-      <select id="g-store">${storeOptions.map((s) => `<option value="${esc(s)}" ${editing && editing.store === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>
+      <input id="g-store" type="text" list="g-store-list" placeholder="اسم المتجر" value="${editing ? esc(editing.store) : ""}"/>
+      <datalist id="g-store-list">${storeOptions.map((s) => `<option value="${esc(s)}"></option>`).join("")}</datalist>
     </div>
     <div style="display:flex;gap:10px">
-      <div class="field" style="flex:1"><label>الكمية</label><input id="g-qty" type="number" inputmode="decimal" value="${editing ? editing.quantity : 1}" oninput="groceryComputeUnitPrice()"/></div>
+      <div class="field" style="flex:1"><label>الكمية</label><input id="g-qty" type="text" inputmode="decimal" value="${editing ? editing.quantity : 1}" oninput="groceryComputeUnitPrice()"/></div>
       <div class="field" style="flex:1"><label>الوحدة</label>
         <select id="g-unit" onchange="groceryComputeUnitPrice()">${unitOptions.map((u) => `<option value="${esc(u)}" ${editing && editing.unit === u ? "selected" : ""}>${esc(u)}</option>`).join("")}</select>
       </div>
     </div>
-    <div class="field"><label>السعر الإجمالي (ر.س)</label><input id="g-total" type="number" inputmode="decimal" placeholder="0" value="${editing ? editing.totalPrice : ""}" oninput="groceryComputeUnitPrice()"/></div>
+    <div class="field"><label>السعر الإجمالي (ر.س)</label><input id="g-total" type="text" inputmode="decimal" placeholder="0" value="${editing ? editing.totalPrice : ""}" oninput="groceryComputeUnitPrice()"/></div>
     <div id="g-unitprice-hint" style="font-size:12px;color:${COLORS.sub};margin:-8px 0 16px"></div>
     <div class="field"><label>التاريخ</label><input id="g-date" type="date" value="${editing ? editing.date : todayISO()}"/></div>
     <input type="hidden" id="g-edit-id" value="${editing ? editing.id : ""}"/>
@@ -430,8 +474,25 @@ function openAddGroceryItemSheet(editId) {
   openSheetShell(editing ? "تعديل عنصر" : "عنصر بقالة جديد", body);
   groceryComputeUnitPrice();
 }
-function groceryProductAutofill() {
-  const last = findLastGroceryEntry(document.getElementById("g-product").value);
+/* live search-as-you-type over past products (matches "name + size" since size is embedded
+   in the product name, e.g. "سميد تيك تات 700جم") — picking a result also autofills
+   category/store/unit from the last time it was bought, same as the old datalist did. */
+function groceryProductSearch(query) {
+  const box = document.getElementById("g-product-suggestions");
+  if (!box) return;
+  const q = query.trim().toLowerCase();
+  if (!q) { box.innerHTML = ""; return; }
+  const matches = groceryProductStats().filter((p) => p.product.toLowerCase().includes(q)).slice(0, 6);
+  box.innerHTML = matches.map((p) => `
+    <div class="grocery-suggestion-item" onmousedown='event.preventDefault();pickGroceryProduct(${JSON.stringify(p.product)})'>
+      <span>${esc(p.product)}</span>
+      <span style="color:${COLORS.sub};font-size:11px;white-space:nowrap">${fmt(p.last.unitPrice)} ر.س/${esc(p.last.unit)}</span>
+    </div>`).join("");
+}
+function pickGroceryProduct(product) {
+  document.getElementById("g-product").value = product;
+  document.getElementById("g-product-suggestions").innerHTML = "";
+  const last = findLastGroceryEntry(product);
   if (!last) return;
   document.getElementById("g-category").value = last.category;
   document.getElementById("g-store").value = last.store;
@@ -439,8 +500,8 @@ function groceryProductAutofill() {
   groceryComputeUnitPrice();
 }
 function groceryComputeUnitPrice() {
-  const qty = parseFloat(document.getElementById("g-qty").value) || 0;
-  const total = parseFloat(document.getElementById("g-total").value) || 0;
+  const qty = parseDecimal(document.getElementById("g-qty").value) || 0;
+  const total = parseDecimal(document.getElementById("g-total").value) || 0;
   const hint = document.getElementById("g-unitprice-hint");
   hint.textContent = qty > 0 && total > 0 ? `سعر الوحدة: ${fmt(total / qty)} ر.س` : "";
 }
@@ -448,16 +509,122 @@ function submitGroceryItem() {
   const editId = document.getElementById("g-edit-id").value;
   const product = document.getElementById("g-product").value.trim();
   const category = document.getElementById("g-category").value;
-  const store = document.getElementById("g-store").value;
-  const quantity = parseFloat(document.getElementById("g-qty").value);
+  const store = document.getElementById("g-store").value.trim();
+  const quantity = parseDecimal(document.getElementById("g-qty").value);
   const unit = document.getElementById("g-unit").value;
-  const totalPrice = parseFloat(document.getElementById("g-total").value);
+  const totalPrice = parseDecimal(document.getElementById("g-total").value);
   const date = document.getElementById("g-date").value || todayISO();
   if (!product || !quantity || quantity <= 0 || !totalPrice || totalPrice <= 0) { alert("أدخل اسم المنتج والكمية والسعر"); return; }
   const patch = { product, category, store, quantity, unit, totalPrice, unitPrice: totalPrice / quantity, date };
   if (editId) updateGroceryItem(editId, patch);
   else addGroceryItem(patch);
+  rememberGroceryStore(store);
   closeSheet(); renderGroceries();
+}
+
+/* -- add a new receipt: one shared store+date, one or more item rows -- */
+function openGroceryInvoiceSheet() {
+  window.__invoiceStore = "";
+  window.__invoiceDate = todayISO();
+  window.__invoiceRows = [{ product: "", category: GROCERY_CATEGORIES[0], quantity: "1", unit: GROCERY_UNITS[0], totalPrice: "" }];
+  renderGroceryInvoiceSheet();
+}
+function renderGroceryInvoiceSheet() {
+  const storeOptions = groceryStoreOptions();
+  const body = `
+    <div style="display:flex;gap:10px">
+      <div class="field" style="flex:1">
+        <label>المتجر</label>
+        <input id="inv-store" type="text" list="inv-store-list" autocomplete="off" value="${esc(window.__invoiceStore)}" oninput="window.__invoiceStore=this.value" placeholder="اسم المتجر"/>
+        <datalist id="inv-store-list">${storeOptions.map((s) => `<option value="${esc(s)}"></option>`).join("")}</datalist>
+      </div>
+      <div class="field" style="flex:1"><label>التاريخ</label><input id="inv-date" type="date" value="${window.__invoiceDate}" oninput="window.__invoiceDate=this.value"/></div>
+    </div>
+    <div id="inv-rows">${window.__invoiceRows.map((r, i) => groceryInvoiceRowHTML(r, i)).join("")}</div>
+    <button class="btn btn-ghost btn-block" style="margin-bottom:14px" onclick="addInvoiceRow()">${icon("plus", COLORS.ink, 14)} إضافة صنف ثاني</button>
+    <button class="btn btn-primary btn-block" onclick="submitGroceryInvoice()">${icon("check", "#fff", 16)} حفظ${window.__invoiceRows.length > 1 ? ` (${window.__invoiceRows.length} أصناف)` : ""}</button>
+  `;
+  openSheetShell("فاتورة جديدة", body);
+}
+function groceryInvoiceRowHTML(r, i) {
+  const canRemove = window.__invoiceRows.length > 1;
+  return `
+    <div class="card" style="padding:12px;margin-bottom:10px">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:12px;color:${COLORS.sub};font-weight:700">صنف ${i + 1}</div>
+        ${canRemove ? `<button class="btn btn-ghost" onclick="removeInvoiceRow(${i})">${icon("x", COLORS.danger, 13)}</button>` : ""}
+      </div>
+      <div class="field" style="position:relative;margin-bottom:10px">
+        <input id="inv-product-${i}" type="text" autocomplete="off" placeholder="اسم المنتج" value="${esc(r.product)}"
+          oninput="groceryInvoiceProductSearch(${i}, this.value)"/>
+        <div id="inv-suggest-${i}" class="grocery-suggestions"></div>
+      </div>
+      <div style="margin-bottom:10px">
+        <select id="inv-cat-${i}" style="width:100%" onchange="window.__invoiceRows[${i}].category=this.value">
+          ${GROCERY_CATEGORIES.map((c) => `<option value="${esc(c)}" ${r.category === c ? "selected" : ""}>${esc(c)}</option>`).join("")}
+        </select>
+      </div>
+      <div style="display:flex;gap:8px">
+        <input id="inv-qty-${i}" type="text" inputmode="decimal" style="flex:1" placeholder="الكمية" value="${esc(String(r.quantity ?? ""))}" oninput="window.__invoiceRows[${i}].quantity=this.value"/>
+        <select id="inv-unit-${i}" style="flex:1" onchange="window.__invoiceRows[${i}].unit=this.value">
+          ${GROCERY_UNITS.map((u) => `<option value="${esc(u)}" ${r.unit === u ? "selected" : ""}>${esc(u)}</option>`).join("")}
+        </select>
+        <input id="inv-price-${i}" type="text" inputmode="decimal" style="flex:1" placeholder="السعر" value="${esc(String(r.totalPrice ?? ""))}" oninput="window.__invoiceRows[${i}].totalPrice=this.value"/>
+      </div>
+    </div>`;
+}
+function groceryInvoiceProductSearch(i, query) {
+  window.__invoiceRows[i].product = query;
+  const box = document.getElementById(`inv-suggest-${i}`);
+  if (!box) return;
+  const q = query.trim().toLowerCase();
+  if (!q) { box.innerHTML = ""; return; }
+  const matches = groceryProductStats().filter((p) => p.product.toLowerCase().includes(q)).slice(0, 6);
+  box.innerHTML = matches.map((p) => `
+    <div class="grocery-suggestion-item" onmousedown='event.preventDefault();pickInvoiceProduct(${i},${JSON.stringify(p.product)})'>
+      <span>${esc(p.product)}</span>
+      <span style="color:${COLORS.sub};font-size:11px;white-space:nowrap">${fmt(p.last.unitPrice)} ر.س/${esc(p.last.unit)}</span>
+    </div>`).join("");
+}
+function pickInvoiceProduct(i, product) {
+  window.__invoiceRows[i].product = product;
+  document.getElementById(`inv-product-${i}`).value = product;
+  document.getElementById(`inv-suggest-${i}`).innerHTML = "";
+  const last = findLastGroceryEntry(product);
+  if (!last) return;
+  window.__invoiceRows[i].category = last.category;
+  window.__invoiceRows[i].unit = last.unit;
+  document.getElementById(`inv-cat-${i}`).value = last.category;
+  document.getElementById(`inv-unit-${i}`).value = last.unit;
+}
+function addInvoiceRow() {
+  window.__invoiceRows.push({ product: "", category: GROCERY_CATEGORIES[0], quantity: "1", unit: GROCERY_UNITS[0], totalPrice: "" });
+  renderGroceryInvoiceSheet();
+}
+function removeInvoiceRow(i) {
+  if (window.__invoiceRows.length <= 1) return;
+  window.__invoiceRows.splice(i, 1);
+  renderGroceryInvoiceSheet();
+}
+function submitGroceryInvoice() {
+  const store = (document.getElementById("inv-store").value || "").trim();
+  const date = document.getElementById("inv-date").value || todayISO();
+  if (!store) { alert("أدخل اسم المتجر"); return; }
+  const rows = window.__invoiceRows.map((_, i) => ({
+    product: document.getElementById(`inv-product-${i}`).value.trim(),
+    category: document.getElementById(`inv-cat-${i}`).value,
+    quantity: parseDecimal(document.getElementById(`inv-qty-${i}`).value),
+    unit: document.getElementById(`inv-unit-${i}`).value,
+    totalPrice: parseDecimal(document.getElementById(`inv-price-${i}`).value),
+  }));
+  const valid = rows.filter((r) => r.product && r.quantity > 0 && r.totalPrice > 0);
+  if (!valid.length) { alert("أدخل بيانات صحيحة لصنف واحد على الأقل (الاسم والكمية والسعر)"); return; }
+  valid.forEach((r) => addGroceryItem({ ...r, unitPrice: r.totalPrice / r.quantity, store, date }));
+  rememberGroceryStore(store);
+  const skipped = rows.length - valid.length;
+  window.__invoiceRows = null;
+  closeSheet(); renderGroceries();
+  if (skipped) alert(`تمت إضافة ${valid.length} من ${rows.length} — تأكد من بيانات باقي الأصناف`);
 }
 
 /* -- bulk import: paste a list (e.g. one you asked me to build from a receipt photo you sent in chat) -- */
@@ -483,8 +650,8 @@ function submitGroceryImport() {
   lines.forEach((line) => {
     const parts = line.split("|").map((p) => p.trim());
     const [product, qtyStr, unit, totalStr, store, category] = parts;
-    const quantity = parseFloat(qtyStr);
-    const totalPrice = parseFloat(totalStr);
+    const quantity = parseDecimal(qtyStr);
+    const totalPrice = parseDecimal(totalStr);
     if (!product || !quantity || !totalPrice) return;
     addGroceryItem({
       product, quantity, unit: unit || "حبة", totalPrice,
@@ -492,6 +659,7 @@ function submitGroceryImport() {
       store: store || "غير محدد", category: category || "أخرى",
       date: todayISO(),
     });
+    if (store) rememberGroceryStore(store);
     added++;
   });
   if (!added) { alert("ما قدرت أفهم أي سطر — تأكد من الصيغة وحاول مرة ثانية"); return; }
