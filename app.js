@@ -48,6 +48,7 @@ const ICONS = {
   x: (c, s) => svg(`<path d="M6 6l12 12M18 6L6 18"/>`, c, s),
   trash: (c, s) => svg(`<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m3 0-1 13a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1L6 7"/>`, c, s),
   download: (c, s) => svg(`<path d="M12 3v12m0 0-4-4m4 4 4-4M4 19h16"/>`, c, s),
+  upload: (c, s) => svg(`<path d="M12 21V9m0 0-4 4m4-4 4 4M4 5h16"/>`, c, s),
   chevronRight: (c, s) => svg(`<path d="M9 5l7 7-7 7"/>`, c, s),
   chevronLeft: (c, s) => svg(`<path d="M15 5l-7 7 7 7"/>`, c, s),
   check: (c, s) => svg(`<path d="M5 12l5 5L20 7"/>`, c, s),
@@ -289,8 +290,23 @@ function upsertCategory(cat) {
   saveData();
 }
 function deleteCategory(id) {
-  if (!confirm("تحذف هذي الفئة؟ العمليات المرتبطة فيها بتظل مسجلة.")) return;
+  const cat = state.data.categories.find((c) => c.id === id);
+  const dependentCount = state.data.expenses.filter((e) => e.categoryId === id).length;
+  const hasMerchantRules = Object.values(state.data.merchantMap || {}).includes(id);
+  let msg;
+  if (dependentCount > 0) {
+    msg = `فئة "${cat ? cat.name : ""}" فيها ${dependentCount} مصروف مسجل. لو حذفتها، هذي المصاريف بتضل موجودة بالسجل والتقارير الكلية، لكن بتصير "غير مصنّفة" — تختفي من ميزانية الفئة نفسها ورسومها البيانية.${hasMerchantRules ? " وأي تصنيف تلقائي لمتاجر مرتبطة بهذي الفئة بيتوقف." : ""} تكمل الحذف؟`;
+  } else {
+    msg = `تحذف فئة "${cat ? cat.name : ""}"؟ ما فيه مصاريف مسجلة تحتها حالياً.`;
+  }
+  if (!confirm(msg)) return;
   state.data.categories = state.data.categories.filter((c) => c.id !== id);
+  // otherwise a remembered merchant would keep silently pointing bank-SMS imports at a
+  // category that no longer exists, instead of falling back to "pick a category" like an
+  // unrecognized merchant does
+  if (state.data.merchantMap) {
+    state.data.merchantMap = Object.fromEntries(Object.entries(state.data.merchantMap).filter(([, catId]) => catId !== id));
+  }
   saveData(); render();
 }
 function addDebt(debt) { state.data.debts.unshift({ id: uid(), payments: [], ...debt }); saveData(); }
@@ -420,6 +436,47 @@ function exportCSV() {
   const a = document.createElement("a");
   a.href = url; a.download = `مصاريف-${state.month}.csv`; a.click();
   URL.revokeObjectURL(url);
+}
+
+/* -- full backup: everything (محفظتي + بقالتي) in one file the user holds themselves, so data
+   never depends solely on cloud sync having actually run (e.g. before ever signing in, or while
+   offline) -- */
+function exportFullBackup() {
+  const backup = {
+    kind: "mahfazti-backup", version: 1, exportedAt: new Date().toISOString(),
+    budget: __getBudgetState(),
+    groceries: typeof __getGroceryState === "function" ? __getGroceryState() : null,
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `محفظتي-نسخة-احتياطية-${todayISO()}.json`; a.click();
+  URL.revokeObjectURL(url);
+}
+function triggerRestoreBackup() { document.getElementById("restore-backup-input").click(); }
+function restoreBackupFromFile(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    input.value = "";
+    let backup;
+    try { backup = JSON.parse(reader.result); }
+    catch (e) { alert("الملف غير صالح — تأكد إنه ملف نسخة احتياطية JSON صحيح"); return; }
+    if (!backup || backup.kind !== "mahfazti-backup" || !backup.budget) { alert("الملف غير صالح — ما فيه بيانات نسخة احتياطية من محفظتي"); return; }
+    if (!confirm(`بيتم استبدال كل بياناتك الحالية (محفظتي وبقالتي) بمحتوى النسخة الاحتياطية بتاريخ ${backup.exportedAt ? backup.exportedAt.slice(0, 10) : "غير معروف"}. هذا الإجراء ما يترجع. تكمل؟`)) return;
+    state.data = backup.budget;
+    state.month = cycleNow();
+    saveData();
+    if (backup.groceries && typeof __setGroceryState === "function") {
+      __setGroceryState(backup.groceries);
+      if (typeof saveGroceryData === "function") saveGroceryData();
+    }
+    closeSheet();
+    render();
+    alert("تمت استعادة بياناتك من النسخة الاحتياطية");
+  };
+  reader.readAsText(file);
 }
 
 /* ---------------- rendering ---------------- */
@@ -653,7 +710,7 @@ function txRowHTML(e) {
     <div class="tx-row">
       ${iconBadge(cat ? cat.icon : "moreHorizontal", cat ? cat.color : COLORS.sub, 14)}
       <div class="tx-main">
-        <div class="tx-title">${esc(cat ? cat.name : "أخرى")}</div>
+        <div class="tx-title">${esc(cat ? cat.name : "غير مصنّفة")}</div>
         <div class="tx-sub">${e.date}${e.note ? " · " + esc(e.note) : ""}</div>
       </div>
       <span class="tx-amount">${fmt(e.amount)}</span>
@@ -829,7 +886,7 @@ function categoriesHTML() {
         const nearLimit = c.budget > 0 && pct >= 80 && pct <= 100;
         const ofTotal = overallVal > 0 ? ` · ${fmt((c.budget / overallVal) * 100)}% من الإجمالي` : "";
         return `
-          <div class="cat-card">
+          <div class="cat-card" onclick='openCategoryExpensesSheet(${JSON.stringify(c.id)})' style="cursor:pointer">
             <div class="row" style="margin-bottom:8px">
               ${iconBadge(c.icon, c.color, 16)}
               <div style="flex:1">
@@ -838,8 +895,8 @@ function categoriesHTML() {
                   ${remaining >= 0 ? `متبقي ${fmt(remaining)} ر.س` : `تجاوز ${fmt(-remaining)} ر.س`}${nearLimit ? " ⚠️ قاربت الحد" : ""}${ofTotal}
                 </div>
               </div>
-              <button class="btn btn-ghost" onclick='openCategorySheet(${JSON.stringify(c.id)})'>${icon("pencil", COLORS.sub, 13)}</button>
-              <button class="btn btn-ghost" onclick='deleteCategory(${JSON.stringify(c.id)})'>${icon("trash", COLORS.danger, 13)}</button>
+              <button class="btn btn-ghost" onclick='event.stopPropagation();openCategorySheet(${JSON.stringify(c.id)})'>${icon("pencil", COLORS.sub, 13)}</button>
+              <button class="btn btn-ghost" onclick='event.stopPropagation();deleteCategory(${JSON.stringify(c.id)})'>${icon("trash", COLORS.danger, 13)}</button>
             </div>
             ${progressBar(pct, budgetUsageColor(pct, c.color))}
             ${weeklyMiniHTML(c)}
@@ -852,7 +909,7 @@ function categoriesHTML() {
         const pct = c.budget > 0 ? (cs / c.budget) * 100 : 0;
         const pill = categoryStatusPill(pct);
         return `
-          <div class="cat-card-desktop">
+          <div class="cat-card-desktop" onclick='openCategoryExpensesSheet(${JSON.stringify(c.id)})' style="cursor:pointer">
             <div class="row" style="justify-content:space-between;align-items:flex-start">
               <div class="row">
                 ${iconBadge(c.icon, c.color, 16)}
@@ -863,8 +920,8 @@ function categoriesHTML() {
               </div>
               <div style="display:flex;align-items:center;gap:6px">
                 <span style="font-family:'Cairo',sans-serif;font-weight:800;font-size:18px">${fmt(cs)} ر.س</span>
-                <button class="btn btn-ghost" onclick='openCategorySheet(${JSON.stringify(c.id)})'>${icon("pencil", COLORS.sub, 13)}</button>
-                <button class="btn btn-ghost" onclick='deleteCategory(${JSON.stringify(c.id)})'>${icon("trash", COLORS.danger, 13)}</button>
+                <button class="btn btn-ghost" onclick='event.stopPropagation();openCategorySheet(${JSON.stringify(c.id)})'>${icon("pencil", COLORS.sub, 13)}</button>
+                <button class="btn btn-ghost" onclick='event.stopPropagation();deleteCategory(${JSON.stringify(c.id)})'>${icon("trash", COLORS.danger, 13)}</button>
               </div>
             </div>
             ${progressBar(pct, budgetUsageColor(pct, c.color))}
@@ -877,6 +934,35 @@ function categoriesHTML() {
     </div>
     <div class="mobile-only">${savingsGoalsHTML()}</div>
   `;
+}
+
+/* -- tapping a category card shows what's actually under it, newest first -- */
+function openCategoryExpensesSheet(catId) {
+  const cat = state.data.categories.find((c) => c.id === catId);
+  if (!cat) return;
+  const items = state.data.expenses.filter((e) => e.categoryId === catId).slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+  const total = items.reduce((s, e) => s + e.amount, 0);
+  const body = `
+    <div style="font-size:13px;color:${COLORS.sub};margin-bottom:14px;line-height:1.8">
+      إجمالي المصاريف: <strong style="color:${COLORS.ink}">${fmt(total)} ر.س</strong> · ${items.length} عملية
+    </div>
+    ${!items.length ? `<div class="empty-state">ما فيه مصاريف مسجلة تحت هذي الفئة بعد</div>` : ""}
+    ${items.map((e) => `
+      <div class="tx-row">
+        <div class="tx-main">
+          <div class="tx-title">${e.date}</div>
+          <div class="tx-sub">${e.note ? esc(e.note) : "بدون ملاحظة"}</div>
+        </div>
+        <span class="tx-amount">${fmt(e.amount)}</span>
+        <button class="btn btn-ghost" onclick='openExpenseSheet(${JSON.stringify(e.id)})'>${icon("pencil", COLORS.sub, 13)}</button>
+        <button class="btn btn-ghost" onclick='deleteExpenseFromCategorySheet(${JSON.stringify(e.id)},${JSON.stringify(catId)})'>${icon("trash", COLORS.danger, 13)}</button>
+      </div>`).join("")}
+  `;
+  openSheetShell(cat.name, body);
+}
+function deleteExpenseFromCategorySheet(id, catId) {
+  deleteExpense(id);
+  openCategoryExpensesSheet(catId);
 }
 
 function savingsGoalsHTML() {
@@ -1090,7 +1176,7 @@ function historyHTML() {
         <div class="tx-row">
           ${iconBadge(cat ? cat.icon : "moreHorizontal", cat ? cat.color : COLORS.sub, 14)}
           <div class="tx-main">
-            <div class="tx-title">${esc(cat ? cat.name : "أخرى")}</div>
+            <div class="tx-title">${esc(cat ? cat.name : "غير مصنّفة")}</div>
             <div class="tx-sub">${e.date}${e.note ? " · " + esc(e.note) : ""}</div>
           </div>
           <span class="tx-amount">${fmt(e.amount)}</span>
@@ -1405,6 +1491,14 @@ function openSettingsSheet() {
 
     <div class="section-title">حسابك ومزامنة بياناتك</div>
     ${typeof mahfaztiSettingsSectionHTML === "function" ? mahfaztiSettingsSectionHTML() : `<div style="font-size:13px;color:${COLORS.sub};line-height:1.8">تعذر تحميل خدمة المزامنة — بياناتك تُحفظ على هذا الجهاز فقط.</div>`}
+
+    <div class="section-title">نسخة احتياطية</div>
+    <div style="font-size:13px;color:${COLORS.sub};margin-bottom:10px;line-height:1.8">نزّل نسخة من كل بياناتك (محفظتي وبقالتي) بملف واحد تحتفظ فيه بنفسك — أمان إضافي حتى لو صار خلل بالمزامنة أو ما سجلت دخول بقوقل أصلاً. خذ نسخة بين فترة وفترة، خصوصاً قبل أي تحديث كبير.</div>
+    <div class="row" style="gap:8px">
+      <button class="btn btn-block" style="flex:1;background:${COLORS.paper};color:${COLORS.ink}" onclick="exportFullBackup()">${icon("download", COLORS.ink, 15)} تنزيل نسخة احتياطية</button>
+      <button class="btn btn-block" style="flex:1;background:${COLORS.paper};color:${COLORS.ink}" onclick="triggerRestoreBackup()">${icon("upload", COLORS.ink, 15)} استعادة من ملف</button>
+    </div>
+    <input type="file" id="restore-backup-input" accept="application/json" style="display:none" onchange="restoreBackupFromFile(this)"/>
 
     <div class="section-title">كيف تستخدم محفظتي صح</div>
     <ol style="font-size:13px;color:${COLORS.ink};padding-inline-start:18px;line-height:1.9;margin:0">

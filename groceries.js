@@ -74,6 +74,13 @@ const GROCERY_SEED = [
   { product: "طماطم أحمر", date: "2026-01-24", totalPrice: 11.6, store: "بنده", category: "خضروات", quantity: 1.452, unit: "كجم", unitPrice: 7.99 },
 ];
 
+/* individual product/unit prices need decimal precision (9.15 ر.س) — the shared fmt() rounds to
+   whole riyals, which is right for totals/budgets but throws away exactly the precision that
+   matters when comparing unit prices between purchases. */
+function fmt2(n) {
+  return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
+}
+
 let groceryData = { items: [], settings: { monthlyBudget: 0 } };
 let groceryTab = "overview";
 
@@ -320,35 +327,55 @@ function groceryItemRowHTML(it) {
         <div class="tx-title">${esc(it.product)}</div>
         <div class="tx-sub">${it.date} · ${esc(it.store)} · ${esc(it.category)}</div>
       </div>
-      <span class="tx-amount">${fmt(it.totalPrice)}</span>
+      <span class="tx-amount">${fmt2(it.totalPrice)}</span>
     </div>`;
 }
 
 let groceryProductQuery = "";
+let groceryProductCategoryFilter = "";
 function groceryProductsHTML() {
   const stats = groceryProductsFiltered();
   return `
-    <div class="field" style="margin-top:16px;margin-bottom:6px">
+    <div class="field" style="margin-top:16px;margin-bottom:10px">
       <input type="text" placeholder="ابحث عن منتج..." value="${esc(groceryProductQuery)}" oninput="filterGroceryProducts(this.value)"/>
+    </div>
+    <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:2px">
+      ${groceryCategoryChipHTML("", "الكل")}
+      ${GROCERY_CATEGORIES.map((c) => groceryCategoryChipHTML(c, c)).join("")}
     </div>
     <div class="section-title">منتجاتك</div>
     <div id="grocery-products-list">${groceryProductsListHTML(stats)}</div>
   `;
 }
+function groceryCategoryChipHTML(value, label) {
+  const active = groceryProductCategoryFilter === value;
+  const color = value ? (GROCERY_CATEGORY_COLORS[value] || COLORS.sub) : COLORS.ink;
+  return `
+    <button onclick='filterGroceryProductsByCategory(${JSON.stringify(value)})'
+      style="flex-shrink:0;border:1px solid ${active ? color : COLORS.border};background:${active ? color : "#fff"};color:${active ? "#fff" : color};padding:6px 14px;border-radius:999px;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap">
+      ${esc(label)}
+    </button>`;
+}
 function groceryProductsFiltered() {
   const q = groceryProductQuery.trim().toLowerCase();
-  const stats = groceryProductStats();
-  return q ? stats.filter((p) => p.product.toLowerCase().includes(q)) : stats;
+  let stats = groceryProductStats();
+  if (q) stats = stats.filter((p) => p.product.toLowerCase().includes(q));
+  if (groceryProductCategoryFilter) stats = stats.filter((p) => p.last.category === groceryProductCategoryFilter);
+  return stats;
+}
+function filterGroceryProductsByCategory(value) {
+  groceryProductCategoryFilter = value;
+  renderGroceries();
 }
 function groceryProductsListHTML(stats) {
   return `
-    ${!stats.length ? `<div class="empty-state">${groceryProductQuery ? "ما فيه منتجات مطابقة للبحث" : "ما فيه منتجات مسجلة بعد"}</div>` : ""}
+    ${!stats.length ? `<div class="empty-state">${groceryProductQuery || groceryProductCategoryFilter ? "ما فيه منتجات مطابقة" : "ما فيه منتجات مسجلة بعد"}</div>` : ""}
     ${stats.map((p) => `
       <div class="cat-card" onclick='openProductDetail(${JSON.stringify(p.product)})' style="cursor:pointer">
         <div class="row" style="margin-bottom:2px">
           <div style="flex:1;min-width:0">
             <div class="cat-name">${esc(p.product)}</div>
-            <div class="cat-amounts">آخر سعر ${fmt(p.last.unitPrice)} ر.س/${esc(p.last.unit)} · ${p.count} مرة شراء</div>
+            <div class="cat-amounts">آخر سعر ${fmt2(p.last.unitPrice)} ر.س/${esc(p.last.unit)} · ${p.count} مرة شراء</div>
           </div>
           <span style="font-size:11px;color:${COLORS.success};background:${COLORS.success}1F;padding:4px 8px;border-radius:999px;white-space:nowrap">أرخص: ${esc(p.cheapest.store)}</span>
         </div>
@@ -364,8 +391,8 @@ function openProductDetail(product) {
   if (!stats) return;
   const body = `
     <div style="font-size:13px;color:${COLORS.sub};margin-bottom:14px;line-height:1.8">
-      متوسط سعر الوحدة: <strong style="color:${COLORS.ink}">${fmt(stats.avgUnit)} ر.س</strong><br/>
-      أرخص سعر: <strong style="color:${COLORS.success}">${fmt(stats.cheapest.unitPrice)} ر.س</strong> من ${esc(stats.cheapest.store)}
+      متوسط سعر الوحدة: <strong style="color:${COLORS.ink}">${fmt2(stats.avgUnit)} ر.س</strong><br/>
+      أرخص سعر: <strong style="color:${COLORS.success}">${fmt2(stats.cheapest.unitPrice)} ر.س</strong> من ${esc(stats.cheapest.store)}
     </div>
     ${stats.purchases.map((p) => `
       <div class="tx-row">
@@ -373,7 +400,7 @@ function openProductDetail(product) {
           <div class="tx-title">${esc(p.store)}</div>
           <div class="tx-sub">${p.date} · ${p.quantity} ${esc(p.unit)}</div>
         </div>
-        <span class="tx-amount">${fmt(p.unitPrice)}/${esc(p.unit)}</span>
+        <span class="tx-amount">${fmt2(p.unitPrice)}/${esc(p.unit)}</span>
         <button class="btn btn-ghost" onclick='closeSheet();openAddGroceryItemSheet(${JSON.stringify(p.id)})'>${icon("pencil", COLORS.sub, 13)}</button>
       </div>`).join("")}
   `;
@@ -395,7 +422,7 @@ function groceryHistoryHTML() {
           <div class="tx-title">${esc(it.product)}</div>
           <div class="tx-sub">${it.date} · ${esc(it.store)} · ${esc(it.category)} · ${it.quantity} ${esc(it.unit)}</div>
         </div>
-        <span class="tx-amount">${fmt(it.totalPrice)}</span>
+        <span class="tx-amount">${fmt2(it.totalPrice)}</span>
         <button class="btn btn-ghost" onclick='openAddGroceryItemSheet(${JSON.stringify(it.id)})'>${icon("pencil", COLORS.sub, 13)}</button>
         <button class="btn btn-ghost" onclick='deleteGroceryItem(${JSON.stringify(it.id)})'>${icon("trash", COLORS.danger, 13)}</button>
       </div>`).join("")}
@@ -486,7 +513,7 @@ function groceryProductSearch(query) {
   box.innerHTML = matches.map((p) => `
     <div class="grocery-suggestion-item" onmousedown='event.preventDefault();pickGroceryProduct(${JSON.stringify(p.product)})'>
       <span>${esc(p.product)}</span>
-      <span style="color:${COLORS.sub};font-size:11px;white-space:nowrap">${fmt(p.last.unitPrice)} ر.س/${esc(p.last.unit)}</span>
+      <span style="color:${COLORS.sub};font-size:11px;white-space:nowrap">${fmt2(p.last.unitPrice)} ر.س/${esc(p.last.unit)}</span>
     </div>`).join("");
 }
 function pickGroceryProduct(product) {
@@ -503,7 +530,7 @@ function groceryComputeUnitPrice() {
   const qty = parseDecimal(document.getElementById("g-qty").value) || 0;
   const total = parseDecimal(document.getElementById("g-total").value) || 0;
   const hint = document.getElementById("g-unitprice-hint");
-  hint.textContent = qty > 0 && total > 0 ? `سعر الوحدة: ${fmt(total / qty)} ر.س` : "";
+  hint.textContent = qty > 0 && total > 0 ? `سعر الوحدة: ${fmt2(total / qty)} ر.س` : "";
 }
 function submitGroceryItem() {
   const editId = document.getElementById("g-edit-id").value;
@@ -583,7 +610,7 @@ function groceryInvoiceProductSearch(i, query) {
   box.innerHTML = matches.map((p) => `
     <div class="grocery-suggestion-item" onmousedown='event.preventDefault();pickInvoiceProduct(${i},${JSON.stringify(p.product)})'>
       <span>${esc(p.product)}</span>
-      <span style="color:${COLORS.sub};font-size:11px;white-space:nowrap">${fmt(p.last.unitPrice)} ر.س/${esc(p.last.unit)}</span>
+      <span style="color:${COLORS.sub};font-size:11px;white-space:nowrap">${fmt2(p.last.unitPrice)} ر.س/${esc(p.last.unit)}</span>
     </div>`).join("");
 }
 function pickInvoiceProduct(i, product) {
