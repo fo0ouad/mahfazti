@@ -384,10 +384,15 @@ function goalMonthlyNeeded(g) {
 
 /* ---------------- bank SMS parsing + merchant memory ---------------- */
 function parseBankSMS(text) {
+  // drop the balance line first — many bank formats report the account balance *after* the
+  // transaction amount (e.g. "شراء ... SR 104 ... رصيد:3091.28 SR"), and without this the
+  // "number then currency" pattern below would grab the balance instead of the actual amount
+  // since it appears later in the string but matches that pattern more directly.
+  const amountText = text.replace(/(?:الرصيد|رصيد)[:：]?\s*[\d,]+(?:\.\d{1,2})?\s*(?:ريال|ر\.س|SAR|SR)?/gi, "");
   const amountMatch =
-    text.match(/(\d[\d,]*(?:\.\d{1,2})?)\s*(?:ريال|ر\.س|SAR|SR)/i) ||
-    text.match(/(?:ريال|ر\.س|SAR|SR)\s*(\d[\d,]*(?:\.\d{1,2})?)/i) ||
-    text.match(/(\d[\d,]*(?:\.\d{1,2})?)/);
+    amountText.match(/(\d[\d,]*(?:\.\d{1,2})?)\s*(?:ريال|ر\.س|SAR|SR)/i) ||
+    amountText.match(/(?:ريال|ر\.س|SAR|SR)\s*(\d[\d,]*(?:\.\d{1,2})?)/i) ||
+    amountText.match(/(\d[\d,]*(?:\.\d{1,2})?)/);
   const amount = amountMatch ? parseFloat(amountMatch[1].replace(/,/g, "")) : null;
 
   const merchant = extractMerchant(text);
@@ -401,13 +406,14 @@ function parseBankSMS(text) {
   }
   return { amount, merchant, date };
 }
-/* "لدى"/"من" always mark the merchant explicitly across bank formats; "في" is ambiguous —
+/* "لدى"/"من"/"لـ" always mark the merchant explicitly across bank formats; "في" is ambiguous —
    it introduces the merchant in some formats but the date/time in others, so it's tried last
    and rejected if what follows looks like a date (starts with a digit) rather than a name. */
 function extractMerchant(text) {
   const patterns = [
     /(?:لدى|من)[:：]?\s*([A-Za-z؀-ۿ0-9 &._-]{2,40})/i,
     /(?:Merchant[:：]?|at)\s*([A-Za-z؀-ۿ0-9 &._-]{2,40})/i,
+    /لـ[:：]?\s*([A-Za-z؀-ۿ0-9 &._-]{2,40})/i,
     /في[:：]?\s*([A-Za-z؀-ۿ0-9 &._-]{2,40})/i,
   ];
   for (const p of patterns) {
