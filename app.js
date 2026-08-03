@@ -319,6 +319,19 @@ function payDebt(debtId, payment) {
   state.data.debts = state.data.debts.map((d) => d.id === debtId ? { ...d, payments: [...(d.payments || []), payment] } : d);
   saveData();
 }
+/* paymentId is null for payments recorded before payments had ids — those fall back to
+   deleting by their position in the stored (unsorted) array instead */
+function deletePayment(debtId, paymentId, index) {
+  if (!confirm("تحذف هذا السداد؟")) return;
+  state.data.debts = state.data.debts.map((d) => {
+    if (d.id !== debtId) return d;
+    const payments = (d.payments || []).slice();
+    if (paymentId) return { ...d, payments: payments.filter((p) => p.id !== paymentId) };
+    payments.splice(index, 1);
+    return { ...d, payments };
+  });
+  saveData();
+}
 function addSavingsGoal(goal) { state.data.savingsGoals.unshift({ id: uid(), contributions: [], ...goal }); saveData(); }
 function deleteSavingsGoal(id) {
   if (!confirm("تحذف هذا الهدف؟")) return;
@@ -1063,12 +1076,15 @@ function openGoalContributionSheet(goalId) {
     <div class="field"><label>المبلغ (ر.س)</label><input id="f-goalamt" type="number" inputmode="decimal" placeholder="0"/></div>
     <button class="btn btn-block" style="background:${COLORS.success};color:#fff" onclick='submitGoalContribution(${JSON.stringify(goalId)})'>${icon("check", "#fff", 16)} إضافة للهدف</button>
   `;
+  window.__contribSubmitting = false; // reset the double-submit guard for this fresh sheet
   openSheetShell(`إضافة لـ: ${g.name}`, body);
 }
 function submitGoalContribution(goalId) {
+  if (window.__contribSubmitting) return; // guard against a fast double-tap double-recording the same contribution
   const amount = parseFloat(document.getElementById("f-goalamt").value);
   if (!amount || amount <= 0) { alert("أدخل مبلغ صحيح"); return; }
-  addGoalContribution(goalId, { amount, date: todayISO() });
+  window.__contribSubmitting = true;
+  addGoalContribution(goalId, { id: uid(), amount, date: todayISO() });
   closeSheet(); render();
 }
 
@@ -1779,28 +1795,38 @@ function openPaySheet(debtId) {
     <div class="field"><label>تاريخ السداد</label><input id="f-paydate" type="date" value="${todayISO()}"/></div>
     <button class="btn btn-block" style="background:${COLORS.success};color:#fff" onclick='submitPay(${JSON.stringify(debtId)})'>${icon("check", "#fff", 16)} تسجيل السداد</button>
   `;
+  window.__paySubmitting = false; // reset the double-submit guard for this fresh sheet
   openSheetShell(`سداد: ${d.name}`, body);
 }
 function submitPay(debtId) {
+  // a fast double-tap on mobile can fire this twice before the sheet closes, silently
+  // double-recording the same payment (payments had no id, so the only sign was the total)
+  if (window.__paySubmitting) return;
   const amount = parseFloat(document.getElementById("f-paymount").value);
   const date = document.getElementById("f-paydate").value || todayISO();
   if (!amount || amount <= 0) { alert("أدخل مبلغ سداد صحيح"); return; }
-  payDebt(debtId, { amount, date });
+  window.__paySubmitting = true;
+  payDebt(debtId, { id: uid(), amount, date });
   closeSheet(); render();
 }
 function openDebtHistorySheet(debtId) {
   const d = state.data.debts.find((x) => x.id === debtId);
   if (!d) return;
-  const payments = (d.payments || []).slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+  const payments = (d.payments || []).map((p, i) => ({ ...p, __idx: i })).sort((a, b) => (a.date < b.date ? 1 : -1));
   const body = `
     ${d.date ? `<div style="font-size:13px;color:${COLORS.sub};margin-bottom:14px">تاريخ الدين: ${d.date}</div>` : ""}
     ${!payments.length ? `<div class="empty-state">ما سددت شي بعد على هذا الدين</div>` : payments.map((p) => `
       <div class="tx-row">
         <div class="tx-main"><div class="tx-title">سداد</div><div class="tx-sub">${p.date}</div></div>
         <span class="tx-amount">${fmt(p.amount)} ر.س</span>
+        <button class="btn btn-ghost" onclick='deletePaymentFromHistorySheet(${JSON.stringify(debtId)},${JSON.stringify(p.id || null)},${p.__idx})'>${icon("trash", COLORS.danger, 13)}</button>
       </div>`).join("")}
   `;
   openSheetShell(`سجل السداد: ${d.name}`, body);
+}
+function deletePaymentFromHistorySheet(debtId, paymentId, index) {
+  deletePayment(debtId, paymentId, index);
+  openDebtHistorySheet(debtId);
 }
 
 /* ---------------- init ---------------- */
