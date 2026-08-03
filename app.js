@@ -497,6 +497,7 @@ function exportFullBackup() {
     kind: "mahfazti-backup", version: 1, exportedAt: new Date().toISOString(),
     budget: __getBudgetState(),
     groceries: typeof __getGroceryState === "function" ? __getGroceryState() : null,
+    cards: typeof __getCardState === "function" ? __getCardState() : null,
   };
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -515,13 +516,17 @@ function restoreBackupFromFile(input) {
     try { backup = JSON.parse(reader.result); }
     catch (e) { alert("الملف غير صالح — تأكد إنه ملف نسخة احتياطية JSON صحيح"); return; }
     if (!backup || backup.kind !== "mahfazti-backup" || !backup.budget) { alert("الملف غير صالح — ما فيه بيانات نسخة احتياطية من محفظتي"); return; }
-    if (!confirm(`بيتم استبدال كل بياناتك الحالية (محفظتي وبقالتي) بمحتوى النسخة الاحتياطية بتاريخ ${backup.exportedAt ? backup.exportedAt.slice(0, 10) : "غير معروف"}. هذا الإجراء ما يترجع. تكمل؟`)) return;
+    if (!confirm(`بيتم استبدال كل بياناتك الحالية (محفظتي وبقالتي وبطاقاتي) بمحتوى النسخة الاحتياطية بتاريخ ${backup.exportedAt ? backup.exportedAt.slice(0, 10) : "غير معروف"}. هذا الإجراء ما يترجع. تكمل؟`)) return;
     state.data = backup.budget;
     state.month = cycleNow();
     saveData();
     if (backup.groceries && typeof __setGroceryState === "function") {
       __setGroceryState(backup.groceries);
       if (typeof saveGroceryData === "function") saveGroceryData();
+    }
+    if (backup.cards && typeof __setCardState === "function") {
+      __setCardState(backup.cards);
+      if (typeof saveCardData === "function") saveCardData();
     }
     closeSheet();
     render();
@@ -1343,6 +1348,7 @@ function headerHTML() {
         <div class="row" style="gap:8px">
           ${typeof mahfaztiAuthStatusHTML === "function" ? mahfaztiAuthStatusHTML() : ""}
           <button class="btn btn-ghost header-icon-btn" onclick="enterGroceries()" title="بقالتي">${icon("shoppingBasket", COLORS.secondary, 20)}</button>
+          ${typeof enterCards === "function" ? `<button class="btn btn-ghost header-icon-btn" onclick="enterCards()" title="بطاقاتي">${icon("creditCard", COLORS.primary, 20)}</button>` : ""}
           <button class="btn btn-ghost header-icon-btn" onclick="openSettingsSheet()" title="الإعدادات">${icon("settings", COLORS.ink, 20)}</button>
         </div>
       </div>
@@ -1386,6 +1392,7 @@ function tabFabRowHTML(tab) {
 
 function render() {
   if (window.__mode === "groceries" && typeof renderGroceries === "function") { renderGroceries(); return; }
+  if (window.__mode === "cards" && typeof renderCards === "function") { renderCards(); return; }
   const app = document.getElementById("app");
   let body = "";
   if (state.tab === "overview") body = overviewHTML();
@@ -1449,7 +1456,7 @@ function sidebarLinkHTML(l, active, section) {
     </div>`;
 }
 function appSidebarHTML() {
-  const mode = window.__mode === "groceries" ? "groceries" : "budget";
+  const mode = window.__mode === "groceries" ? "groceries" : window.__mode === "cards" ? "cards" : "budget";
   const groceryActiveTab = mode === "groceries" && typeof groceryTab !== "undefined" ? groceryTab : null;
   const budgetLinks = [
     { tab: "overview", label: "نظرة عامة", icon: "home" },
@@ -1471,6 +1478,11 @@ function appSidebarHTML() {
       ${budgetLinks.map((l) => sidebarLinkHTML(l, mode === "budget" && state.tab === l.tab, "budget")).join("")}
       <div class="sidebar-section-label">بقالتي</div>
       ${groceryLinks.map((l) => sidebarLinkHTML(l, mode === "groceries" && groceryActiveTab === l.tab, "grocery")).join("")}
+      ${typeof enterCards === "function" ? `
+        <div class="sidebar-section-label">بطاقاتي</div>
+        <div class="sidebar-link" style="background:${mode === "cards" ? COLORS.primaryTint : "transparent"};color:${mode === "cards" ? COLORS.primary : COLORS.ink};font-weight:${mode === "cards" ? 700 : 500}" onclick="enterCards()">
+          ${icon("creditCard", mode === "cards" ? COLORS.primary : COLORS.sub, 16)}<span>بطاقاتي الائتمانية</span>
+        </div>` : ""}
       <div class="sidebar-link" style="color:${COLORS.ink};margin-top:8px" onclick="openSettingsSheet()">
         ${icon("settings", COLORS.sub, 16)}<span>الإعدادات</span>
       </div>
@@ -1547,7 +1559,7 @@ function openSettingsSheet() {
     ${typeof mahfaztiSettingsSectionHTML === "function" ? mahfaztiSettingsSectionHTML() : `<div style="font-size:13px;color:${COLORS.sub};line-height:1.8">تعذر تحميل خدمة المزامنة — بياناتك تُحفظ على هذا الجهاز فقط.</div>`}
 
     <div class="section-title">نسخة احتياطية</div>
-    <div style="font-size:13px;color:${COLORS.sub};margin-bottom:10px;line-height:1.8">نزّل نسخة من كل بياناتك (محفظتي وبقالتي) بملف واحد تحتفظ فيه بنفسك — أمان إضافي حتى لو صار خلل بالمزامنة أو ما سجلت دخول بقوقل أصلاً. خذ نسخة بين فترة وفترة، خصوصاً قبل أي تحديث كبير.</div>
+    <div style="font-size:13px;color:${COLORS.sub};margin-bottom:10px;line-height:1.8">نزّل نسخة من كل بياناتك (محفظتي وبقالتي وبطاقاتي) بملف واحد تحتفظ فيه بنفسك — أمان إضافي حتى لو صار خلل بالمزامنة أو ما سجلت دخول بقوقل أصلاً. خذ نسخة بين فترة وفترة، خصوصاً قبل أي تحديث كبير.</div>
     <div class="row" style="gap:8px">
       <button class="btn btn-block" style="flex:1;background:${COLORS.paper};color:${COLORS.ink}" onclick="exportFullBackup()">${icon("download", COLORS.ink, 15)} تنزيل نسخة احتياطية</button>
       <button class="btn btn-block" style="flex:1;background:${COLORS.paper};color:${COLORS.ink}" onclick="triggerRestoreBackup()">${icon("upload", COLORS.ink, 15)} استعادة من ملف</button>

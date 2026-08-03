@@ -7,6 +7,7 @@ const APP_SHELL = [
   "./styles.css",
   "./app.js",
   "./groceries.js",
+  "./cards.js",
   "./firebase-sync.js",
   "./manifest.json",
   "./icons/icon-192.png",

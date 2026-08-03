@@ -42,11 +42,13 @@ function scheduleCloudPush() {
 async function pushToCloud() {
   if (!currentUser) return;
   try {
-    await setDoc(doc(db, "users", currentUser.uid), {
+    const payload = {
       budget: window.__getBudgetState(),
       groceries: window.__getGroceryState(),
       updatedAt: serverTimestamp(),
-    });
+    };
+    if (typeof window.__getCardState === "function") payload.cards = window.__getCardState();
+    await setDoc(doc(db, "users", currentUser.uid), payload);
   } catch (e) {
     console.error("mahfazti: cloud push failed", e);
   }
@@ -56,8 +58,10 @@ function applyRemoteData(cloud) {
   applyingRemote = true;
   if (cloud.budget) window.__setBudgetState(cloud.budget);
   if (cloud.groceries) window.__setGroceryState(cloud.groceries);
+  if (cloud.cards && typeof window.__setCardState === "function") window.__setCardState(cloud.cards);
   window.saveData();
   if (typeof window.saveGroceryData === "function") window.saveGroceryData();
+  if (typeof window.saveCardData === "function") window.saveCardData();
   applyingRemote = false;
   window.render();
 }
@@ -125,6 +129,16 @@ function mergeGroceryState(local, cloud) {
     deletedIds,
   };
 }
+function mergeCardState(local, cloud) {
+  local = local || {}; cloud = cloud || {};
+  const deletedIds = mergeIdList(local.deletedIds, cloud.deletedIds);
+  return {
+    cards: prune(mergeById(local.cards, cloud.cards, (l, c) => ({
+      ...l, ...c, entries: prune(mergeSubList(l.entries, c.entries), deletedIds),
+    })), deletedIds),
+    deletedIds,
+  };
+}
 
 /* pull + merge the cloud copy into local, then push the merged union back up. Safe to call
    repeatedly (union-merge is idempotent) — this used to run only once per (device, account),
@@ -149,8 +163,12 @@ async function pullAndMergeCloud() {
   applyingRemote = true;
   window.__setBudgetState(mergedBudget);
   window.__setGroceryState(mergedGroceries);
+  if (typeof window.__getCardState === "function" && typeof window.__setCardState === "function") {
+    window.__setCardState(mergeCardState(window.__getCardState(), cloud.cards));
+  }
   window.saveData();
   if (typeof window.saveGroceryData === "function") window.saveGroceryData();
+  if (typeof window.saveCardData === "function") window.saveCardData();
   applyingRemote = false;
   await pushToCloud(); // write the merged union back up so the cloud copy has everything too
   window.render();
@@ -245,6 +263,13 @@ if (typeof window.saveGroceryData === "function") {
   const _origSaveGroceryData = window.saveGroceryData;
   window.saveGroceryData = function (...args) {
     _origSaveGroceryData.apply(this, args);
+    scheduleCloudPush();
+  };
+}
+if (typeof window.saveCardData === "function") {
+  const _origSaveCardData = window.saveCardData;
+  window.saveCardData = function (...args) {
+    _origSaveCardData.apply(this, args);
     scheduleCloudPush();
   };
 }
