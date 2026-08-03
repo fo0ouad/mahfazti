@@ -106,44 +106,39 @@ function mergeGroceryState(local, cloud) {
   };
 }
 
-// v2: bumped because the resolution logic behind this flag changed (destructive pick-a-winner
-// -> non-destructive merge). A "resolved" flag set under the old logic must not short-circuit
-// the new merge — that would leave a device stuck on stale/incomplete data forever, since the
-// merge that was supposed to fetch the missing cloud data would never run again.
-const SYNC_RESOLVED_KEY = "mahfazti-sync-resolved-v2";
-async function handleSignedIn(user) {
-  currentUser = user;
-  // Firebase restores the signed-in session on every page load, which re-fires this same
-  // handler — the one-time merge below must only ever run once per (device, account), the
-  // first time this device links to this account, or it'd redo the merge on every reload.
-  if (localStorage.getItem(SYNC_RESOLVED_KEY) === user.uid) {
-    window.render();
-    return;
-  }
-  const ref = doc(db, "users", user.uid);
+/* pull + merge the cloud copy into local, then push the merged union back up. Safe to call
+   repeatedly (union-merge is idempotent) — this used to run only once per (device, account),
+   gated by a "resolved" flag, which meant a device that had already synced once would never
+   pull in changes made on *other* devices afterward, even across reloads. Now it runs on every
+   sign-in event and every time the app is brought back to the foreground, so a change made on
+   one device shows up on another after nothing more than a refresh/app-switch. */
+async function pullAndMergeCloud() {
+  if (!currentUser) return;
+  const ref = doc(db, "users", currentUser.uid);
   let snap;
   try {
     snap = await getDoc(ref);
   } catch (e) {
-    alert("تعذر الوصول لبياناتك السحابية: " + (e && e.message ? e.message : e));
-    window.render();
+    console.error("mahfazti: cloud pull failed", e);
     return;
   }
-  if (snap.exists()) {
-    const cloud = snap.data();
-    const mergedBudget = mergeBudgetState(window.__getBudgetState(), cloud.budget);
-    const mergedGroceries = mergeGroceryState(window.__getGroceryState(), cloud.groceries);
-    applyingRemote = true;
-    window.__setBudgetState(mergedBudget);
-    window.__setGroceryState(mergedGroceries);
-    window.saveData();
-    if (typeof window.saveGroceryData === "function") window.saveGroceryData();
-    applyingRemote = false;
-    await pushToCloud(); // write the merged union back up so the cloud copy has everything too
-  } else {
-    await pushToCloud();
-  }
-  localStorage.setItem(SYNC_RESOLVED_KEY, user.uid);
+  if (!snap.exists()) { await pushToCloud(); return; }
+  const cloud = snap.data();
+  const mergedBudget = mergeBudgetState(window.__getBudgetState(), cloud.budget);
+  const mergedGroceries = mergeGroceryState(window.__getGroceryState(), cloud.groceries);
+  applyingRemote = true;
+  window.__setBudgetState(mergedBudget);
+  window.__setGroceryState(mergedGroceries);
+  window.saveData();
+  if (typeof window.saveGroceryData === "function") window.saveGroceryData();
+  applyingRemote = false;
+  await pushToCloud(); // write the merged union back up so the cloud copy has everything too
+  window.render();
+}
+
+async function handleSignedIn(user) {
+  currentUser = user;
+  await pullAndMergeCloud();
   window.render();
 }
 
@@ -151,6 +146,12 @@ onAuthStateChanged(auth, (user) => {
   if (user) handleSignedIn(user);
   else currentUser = null;
   window.render();
+});
+
+/* covers the common PWA case: app was already open, user made a change on another device, then
+   switched back to this tab/app without a full reload. */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && currentUser) pullAndMergeCloud();
 });
 
 window.mahfaztiSidebarFooterHTML = function () {
