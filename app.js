@@ -219,7 +219,7 @@ function categoryWeeklyStatus(cat, key) {
 
 /* ---------------- state ---------------- */
 let state = {
-  data: { categories: DEFAULT_CATEGORIES, expenses: [], debts: [], settings: DEFAULT_SETTINGS, merchantMap: {}, savingsGoals: [] },
+  data: { categories: DEFAULT_CATEGORIES, expenses: [], debts: [], settings: DEFAULT_SETTINGS, merchantMap: {}, savingsGoals: [], deletedIds: [] },
   tab: "overview",
   month: null,
 };
@@ -236,9 +236,23 @@ function loadData() {
         settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) },
         merchantMap: parsed.merchantMap || {},
         savingsGoals: parsed.savingsGoals || [],
+        deletedIds: parsed.deletedIds || [],
       };
     }
   } catch (e) { /* keep defaults */ }
+}
+/* payments/contributions predating unique ids can't be tracked in deletedIds (the sync
+   tombstone log — see firebase-sync.js), so a deletion of one of them can silently come back
+   from a stale cloud copy. Backfill ids once so every future delete is tombstone-safe. */
+function migrateAddMissingIds() {
+  let changed = false;
+  state.data.debts.forEach((d) => {
+    (d.payments || []).forEach((p) => { if (!p.id) { p.id = uid(); changed = true; } });
+  });
+  (state.data.savingsGoals || []).forEach((g) => {
+    (g.contributions || []).forEach((c) => { if (!c.id) { c.id = uid(); changed = true; } });
+  });
+  if (changed) saveData();
 }
 function saveData() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data)); }
@@ -271,6 +285,14 @@ function totalDebtRemaining() {
 function __getBudgetState() { return state.data; }
 function __setBudgetState(data) { state.data = data; state.month = cycleNow(); }
 
+/* records an id as deleted so a sync merge with a stale cloud copy can never bring it back —
+   see the tombstone/prune logic in firebase-sync.js */
+function markDeleted(id) {
+  if (!id) return;
+  state.data.deletedIds = state.data.deletedIds || [];
+  if (!state.data.deletedIds.includes(id)) state.data.deletedIds.push(id);
+}
+
 function addExpense(exp) { state.data.expenses.unshift({ id: uid(), ...exp }); saveData(); }
 function updateExpense(id, patch) {
   state.data.expenses = state.data.expenses.map((e) => (e.id === id ? { ...e, ...patch } : e));
@@ -279,6 +301,7 @@ function updateExpense(id, patch) {
 function deleteExpense(id) {
   if (!confirm("تحذف هذا المصروف؟")) return;
   state.data.expenses = state.data.expenses.filter((e) => e.id !== id);
+  markDeleted(id);
   saveData(); render();
 }
 function upsertCategory(cat) {
@@ -301,6 +324,7 @@ function deleteCategory(id) {
   }
   if (!confirm(msg)) return;
   state.data.categories = state.data.categories.filter((c) => c.id !== id);
+  markDeleted(id);
   // otherwise a remembered merchant would keep silently pointing bank-SMS imports at a
   // category that no longer exists, instead of falling back to "pick a category" like an
   // unrecognized merchant does
@@ -313,6 +337,7 @@ function addDebt(debt) { state.data.debts.unshift({ id: uid(), payments: [], ...
 function deleteDebt(id) {
   if (!confirm("تحذف هذا الدين؟")) return;
   state.data.debts = state.data.debts.filter((d) => d.id !== id);
+  markDeleted(id);
   saveData(); render();
 }
 function payDebt(debtId, payment) {
@@ -320,9 +345,12 @@ function payDebt(debtId, payment) {
   saveData();
 }
 /* paymentId is null for payments recorded before payments had ids — those fall back to
-   deleting by their position in the stored (unsorted) array instead */
+   deleting by their position in the stored (unsorted) array instead. Positional deletes can't
+   be tombstoned (no id to record), so migrateAddMissingIds() backfills ids for old payments on
+   load specifically so this fallback becomes unreachable going forward. */
 function deletePayment(debtId, paymentId, index) {
   if (!confirm("تحذف هذا السداد؟")) return;
+  if (paymentId) markDeleted(paymentId);
   state.data.debts = state.data.debts.map((d) => {
     if (d.id !== debtId) return d;
     const payments = (d.payments || []).slice();
@@ -336,6 +364,7 @@ function addSavingsGoal(goal) { state.data.savingsGoals.unshift({ id: uid(), con
 function deleteSavingsGoal(id) {
   if (!confirm("تحذف هذا الهدف؟")) return;
   state.data.savingsGoals = state.data.savingsGoals.filter((g) => g.id !== id);
+  markDeleted(id);
   saveData(); render();
 }
 function addGoalContribution(goalId, contribution) {
@@ -1831,6 +1860,7 @@ function deletePaymentFromHistorySheet(debtId, paymentId, index) {
 
 /* ---------------- init ---------------- */
 loadData();
+migrateAddMissingIds();
 state.month = cycleNow();
 render();
 

@@ -81,7 +81,7 @@ function fmt2(n) {
   return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
 }
 
-let groceryData = { items: [], settings: { monthlyBudget: 0 } };
+let groceryData = { items: [], settings: { monthlyBudget: 0 }, deletedIds: [] };
 let groceryTab = "overview";
 
 function loadGroceryData() {
@@ -89,9 +89,20 @@ function loadGroceryData() {
     const raw = localStorage.getItem(GROCERY_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      groceryData = { items: parsed.items || [], settings: { monthlyBudget: 0, stores: [...GROCERY_STORES], ...(parsed.settings || {}) } };
+      groceryData = {
+        items: parsed.items || [],
+        settings: { monthlyBudget: 0, stores: [...GROCERY_STORES], ...(parsed.settings || {}) },
+        deletedIds: parsed.deletedIds || [],
+      };
     }
   } catch (e) { /* keep defaults */ }
+}
+/* records an id as deleted so a sync merge with a stale cloud copy can never bring it back —
+   see the tombstone/prune logic in firebase-sync.js */
+function markGroceryDeleted(id) {
+  if (!id) return;
+  groceryData.deletedIds = groceryData.deletedIds || [];
+  if (!groceryData.deletedIds.includes(id)) groceryData.deletedIds.push(id);
 }
 /* Arabic keyboards (esp. Samsung's) commonly produce "،"/"٫" or Arabic-Indic digits for a
    decimal price instead of a plain ".", which a type="number" input silently rejects. Price/qty
@@ -152,6 +163,7 @@ function updateGroceryItem(id, patch) {
 function deleteGroceryItem(id) {
   if (!confirm("تحذف هذا العنصر؟")) return;
   groceryData.items = groceryData.items.filter((x) => x.id !== id);
+  markGroceryDeleted(id);
   saveGroceryData(); renderGroceries();
 }
 /* ---------------- derived ---------------- */

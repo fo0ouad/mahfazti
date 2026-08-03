@@ -87,22 +87,42 @@ function mergeSubList(localSub, cloudSub) {
   });
   return out;
 }
+/* a plain union-merge can only ever add items back in — it has no way to represent "this used
+   to exist and was deleted", so a device deleting something followed shortly by a pull that
+   still sees an older cloud copy (very possible now that pulls happen on every foreground, not
+   just once ever) would silently resurrect it. deletedIds is a tombstone log: once an id is in
+   here, prune() strips it out of every merge result forever, regardless of which side's copy of
+   it is newer. */
+function mergeIdList(a, b) { return Array.from(new Set([...(a || []), ...(b || [])])); }
+function prune(arr, deletedIds) {
+  if (!arr || !deletedIds || !deletedIds.length) return arr || [];
+  const del = new Set(deletedIds);
+  return arr.filter((item) => !(item && item.id && del.has(item.id)));
+}
 function mergeBudgetState(local, cloud) {
   local = local || {}; cloud = cloud || {};
+  const deletedIds = mergeIdList(local.deletedIds, cloud.deletedIds);
   return {
-    categories: (cloud.categories && cloud.categories.length) ? cloud.categories : (local.categories || []),
-    expenses: mergeById(local.expenses, cloud.expenses),
-    debts: mergeById(local.debts, cloud.debts, (l, c) => ({ ...l, ...c, payments: mergeSubList(l.payments, c.payments) })),
-    savingsGoals: mergeById(local.savingsGoals, cloud.savingsGoals, (l, c) => ({ ...l, ...c, contributions: mergeSubList(l.contributions, c.contributions) })),
+    categories: prune(mergeById(local.categories, cloud.categories), deletedIds),
+    expenses: prune(mergeById(local.expenses, cloud.expenses), deletedIds),
+    debts: prune(mergeById(local.debts, cloud.debts, (l, c) => ({
+      ...l, ...c, payments: prune(mergeSubList(l.payments, c.payments), deletedIds),
+    })), deletedIds),
+    savingsGoals: prune(mergeById(local.savingsGoals, cloud.savingsGoals, (l, c) => ({
+      ...l, ...c, contributions: prune(mergeSubList(l.contributions, c.contributions), deletedIds),
+    })), deletedIds),
     settings: { ...(local.settings || {}), ...(cloud.settings || {}) },
     merchantMap: { ...(local.merchantMap || {}), ...(cloud.merchantMap || {}) },
+    deletedIds,
   };
 }
 function mergeGroceryState(local, cloud) {
   local = local || {}; cloud = cloud || {};
+  const deletedIds = mergeIdList(local.deletedIds, cloud.deletedIds);
   return {
-    items: mergeById(local.items, cloud.items),
+    items: prune(mergeById(local.items, cloud.items), deletedIds),
     settings: { ...(local.settings || {}), ...(cloud.settings || {}) },
+    deletedIds,
   };
 }
 
