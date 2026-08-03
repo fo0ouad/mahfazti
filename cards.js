@@ -86,6 +86,53 @@ function cardDueSoon(c) {
   const days = Math.ceil((new Date(c.dueDate + "T00:00:00") - new Date(todayISO() + "T00:00:00")) / 86400000);
   return days >= 0 && days <= 5;
 }
+/* month-by-month payoff projection: murabaha only accrues on whatever balance is left after
+   that month's payment (paying the statement in full is how you avoid it entirely, same as real
+   murabaha cards), then next month's payment is applied against balance+murabaha. Assumes rate
+   and payment stay constant, so it's a planning estimate, not real bank accounting. Capped at
+   360 months — a payment that never exceeds that month's murabaha charge makes the balance flat
+   or grow forever, which the cap turns into an explicit "never pays off" warning instead of an
+   endless loop. */
+function simulateCardPayoff(c, plan) {
+  const rate = (plan.murabahaRateMonthly || 0) / 100;
+  const balance0 = (c.creditLimit || 0) - (c.available || 0);
+  if (balance0 <= 0) return { balance0, months: 0, totalMurabaha: 0, neverPaysOff: false };
+  let balance = balance0;
+  let totalMurabaha = 0;
+  let months = 0;
+  const MAX_MONTHS = 360;
+  while (balance > 1 && months < MAX_MONTHS) {
+    months++;
+    let payment;
+    if (plan.paymentMode === "full") payment = balance;
+    else if (plan.paymentMode === "half") payment = balance / 2;
+    else payment = plan.paymentAmount || 0;
+    const murabaha = payment < balance ? balance * rate : 0;
+    balance = Math.max(0, balance + murabaha - payment);
+    totalMurabaha += murabaha;
+  }
+  return { balance0, months, totalMurabaha, neverPaysOff: months >= MAX_MONTHS && balance > 1 };
+}
+function cardPayoffResultHTML(result) {
+  if (result.balance0 <= 0) {
+    return `<div class="card" style="background:${COLORS.successBg};margin-bottom:14px"><div style="font-size:13px;color:${COLORS.success};font-weight:700">ما فيه رصيد مستخدم حالياً — البطاقة مسددة 🎉</div></div>`;
+  }
+  if (result.neverPaysOff) {
+    return `
+    <div class="card" style="background:${COLORS.dangerBg};margin-bottom:14px">
+      <div style="font-size:13px;color:${COLORS.danger};font-weight:700;margin-bottom:4px">⚠️ بهذي الخطة ما بتخلص من البطاقة أبداً</div>
+      <div style="font-size:12.5px;color:${COLORS.ink};line-height:1.7">مبلغ السداد أقل من (أو يساوي) المرابحة اللي بتتحسب كل شهر على رصيدك الحالي — الرصيد بيضل ثابت أو يكبر بدل ما يقل. لازم تزوّد مبلغ السداد الشهري.</div>
+    </div>`;
+  }
+  const years = Math.floor(result.months / 12);
+  const rem = result.months % 12;
+  const timeLabel = years > 0 ? `${years} سنة${rem ? ` و${rem} شهر` : ""}` : `${result.months} شهر`;
+  return `
+    <div class="card" style="background:${COLORS.primaryTint};margin-bottom:14px">
+      <div style="font-size:13px;color:${COLORS.ink};margin-bottom:6px">بهذي الخطة بتخلص من البطاقة خلال <strong>${timeLabel}</strong></div>
+      <div style="font-size:12.5px;color:${COLORS.sub}">إجمالي مرابحة متوقعة: <strong style="color:${COLORS.danger}">${fmt(result.totalMurabaha)} ر.س</strong></div>
+    </div>`;
+}
 
 /* ---------------- nav ---------------- */
 function enterCards() { window.__mode = "cards"; saveUiState(); renderCards(); }
@@ -204,12 +251,14 @@ function openCardDetailSheet(cardId) {
       ${c.dueDate ? `<div style="display:flex;justify-content:space-between;font-size:13px"><span>تاريخ الاستحقاق</span><strong style="color:${cardDueSoon(c) ? COLORS.danger : COLORS.ink}">${c.dueDate}</strong></div>` : ""}
     </div>` : ""}
     ${murabahaMonth > 0 ? `<div style="font-size:12.5px;color:${COLORS.danger};margin-bottom:14px">مرابحة/رسوم هذا الشهر: ${fmt(murabahaMonth)} ر.س</div>` : ""}
+    ${c.payoffPlan ? cardPayoffResultHTML(simulateCardPayoff(c, c.payoffPlan)) : ""}
     <div class="row" style="gap:8px;margin-bottom:16px">
       <button class="btn btn-block" style="flex:1;background:${COLORS.paper};color:${COLORS.ink};font-size:12.5px;padding:10px 4px" onclick='closeSheet();openCardEntrySheet(${JSON.stringify(cardId)},"purchase")'>${icon("shoppingBag", COLORS.ink, 14)} سحب</button>
       <button class="btn btn-block" style="flex:1;background:${COLORS.successBg};color:${COLORS.success};font-size:12.5px;padding:10px 4px" onclick='closeSheet();openCardEntrySheet(${JSON.stringify(cardId)},"payment")'>${icon("check", COLORS.success, 14)} سداد</button>
       <button class="btn btn-block" style="flex:1;background:${COLORS.dangerBg};color:${COLORS.danger};font-size:12.5px;padding:10px 4px" onclick='closeSheet();openCardEntrySheet(${JSON.stringify(cardId)},"murabaha")'>${icon("alertTriangle", COLORS.danger, 14)} مرابحة</button>
     </div>
-    <button class="btn btn-ghost btn-block" style="margin-bottom:16px" onclick='closeSheet();openCardStatementSheet(${JSON.stringify(cardId)})'>${icon("pencil", COLORS.sub, 14)} تحديث بيانات الكشف</button>
+    <button class="btn btn-ghost btn-block" style="margin-bottom:10px" onclick='closeSheet();openCardStatementSheet(${JSON.stringify(cardId)})'>${icon("pencil", COLORS.sub, 14)} تحديث بيانات الكشف</button>
+    <button class="btn btn-ghost btn-block" style="margin-bottom:16px" onclick='closeSheet();openCardPayoffSheet(${JSON.stringify(cardId)})'>${icon("trendingUp", COLORS.sub, 14)} ${c.payoffPlan ? "تعديل خطة التخلص من البطاقة" : "خطة التخلص من البطاقة"}</button>
     <div class="section-title">آخر العمليات</div>
     ${!entries.length ? `<div class="empty-state">ما فيه عمليات مسجلة بعد</div>` : entries.map((e) => {
       const t = CARD_ENTRY_TYPES[e.type] || CARD_ENTRY_TYPES.purchase;
@@ -286,6 +335,57 @@ function submitCardStatement() {
   });
   closeSheet();
   renderCards(); // keep the card tile list (behind the sheet) in sync too, not just the sheet
+  openCardDetailSheet(cardId);
+}
+
+/* -- payoff plan: rate + monthly payment strategy, projected live as you edit -- */
+function openCardPayoffSheet(cardId) {
+  const c = cardData.cards.find((x) => x.id === cardId);
+  if (!c) return;
+  const plan = c.payoffPlan || { murabahaRateMonthly: "", paymentMode: "fixed", paymentAmount: "" };
+  const body = `
+    <div style="font-size:12.5px;color:${COLORS.sub};margin-bottom:14px;line-height:1.8">
+      خطة تقديرية تفترض إن النسبة ومبلغ السداد يضلوا ثابتين — تساعدك تشوف متى بتخلص من البطاقة وكم بتدفع مرابحة، مو محاسبة دقيقة من البنك.
+    </div>
+    <div class="field"><label>نسبة المرابحة الشهرية على الرصيد المتبقي (%)</label><input id="pp-rate" type="text" inputmode="decimal" placeholder="مثال: 2.5" value="${plan.murabahaRateMonthly || ""}" oninput="recomputeCardPayoff()"/></div>
+    <div class="field"><label>طريقة السداد كل شهر</label>
+      <select id="pp-mode" onchange="recomputeCardPayoff()">
+        <option value="full" ${plan.paymentMode === "full" ? "selected" : ""}>المبلغ المستحق كامل (ما فيه مرابحة أبداً)</option>
+        <option value="fixed" ${plan.paymentMode === "fixed" ? "selected" : ""}>مبلغ ثابت أحدده</option>
+        <option value="half" ${plan.paymentMode === "half" ? "selected" : ""}>نصف الرصيد المتبقي</option>
+      </select>
+    </div>
+    <div class="field" id="pp-amount-field" style="${plan.paymentMode === "fixed" ? "" : "display:none"}">
+      <label>المبلغ الثابت شهرياً (ر.س)</label>
+      <input id="pp-amount" type="text" inputmode="decimal" value="${plan.paymentAmount || ""}" oninput="recomputeCardPayoff()"/>
+    </div>
+    <div id="pp-result"></div>
+    <input type="hidden" id="pp-card-id" value="${cardId}"/>
+    <button class="btn btn-primary btn-block" onclick="saveCardPayoffPlan()">${icon("check", "#fff", 16)} حفظ الخطة</button>
+  `;
+  openSheetShell("خطة التخلص من البطاقة", body);
+  recomputeCardPayoff();
+}
+function payoffPlanFromForm() {
+  const mode = document.getElementById("pp-mode").value;
+  document.getElementById("pp-amount-field").style.display = mode === "fixed" ? "" : "none";
+  return {
+    murabahaRateMonthly: parseDecimal(document.getElementById("pp-rate").value) || 0,
+    paymentMode: mode,
+    paymentAmount: parseDecimal(document.getElementById("pp-amount").value) || 0,
+  };
+}
+function recomputeCardPayoff() {
+  const cardId = document.getElementById("pp-card-id").value;
+  const c = cardData.cards.find((x) => x.id === cardId);
+  if (!c) return;
+  document.getElementById("pp-result").innerHTML = cardPayoffResultHTML(simulateCardPayoff(c, payoffPlanFromForm()));
+}
+function saveCardPayoffPlan() {
+  const cardId = document.getElementById("pp-card-id").value;
+  updateCard(cardId, { payoffPlan: payoffPlanFromForm() });
+  closeSheet();
+  renderCards();
   openCardDetailSheet(cardId);
 }
 
