@@ -88,7 +88,10 @@ function shiftMonth(ym, delta) {
   if (m > 12) { m = 1; y += 1; }
   return `${y}-${String(m).padStart(2, "0")}`;
 }
-function fmt(n) { return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(n || 0)); }
+// up to 2 decimals, shown only when actually present (104 stays "104", 9.14 stays "9.14") — used
+// to force-round every amount to a whole riyal, silently dropping cents from the display even
+// though the real stored value kept them.
+function fmt(n) { return new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n || 0); }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 function esc(str) { return String(str ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
