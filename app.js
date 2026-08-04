@@ -244,16 +244,29 @@ function loadData() {
     }
   } catch (e) { /* keep defaults */ }
 }
-/* payments/contributions predating unique ids can't be tracked in deletedIds (the sync
-   tombstone log — see firebase-sync.js), so a deletion of one of them can silently come back
-   from a stale cloud copy. Backfill ids once so every future delete is tombstone-safe. */
+/* deterministic, not uid()'s random id: two devices/sessions that each still hold their own
+   unsynced copy of the same legacy (id-less) payment would otherwise get assigned two *different*
+   random ids for what's conceptually the same entry — so a tombstone recorded against one id
+   would never match the other, and a "duplicate" could survive being deleted forever. Hashing
+   the content (+ position, so genuine same-amount-same-date entries stay distinct) instead makes
+   both devices land on the same id independently, so normal id-based merging can actually collapse
+   them once they meet. */
+function simpleHash(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+  return Math.abs(h).toString(36);
+}
 function migrateAddMissingIds() {
   let changed = false;
   state.data.debts.forEach((d) => {
-    (d.payments || []).forEach((p) => { if (!p.id) { p.id = uid(); changed = true; } });
+    (d.payments || []).forEach((p, i) => {
+      if (!p.id) { p.id = `legacy-${simpleHash(`${d.id}|${p.amount}|${p.date}|${i}`)}`; changed = true; }
+    });
   });
   (state.data.savingsGoals || []).forEach((g) => {
-    (g.contributions || []).forEach((c) => { if (!c.id) { c.id = uid(); changed = true; } });
+    (g.contributions || []).forEach((c, i) => {
+      if (!c.id) { c.id = `legacy-${simpleHash(`${g.id}|${c.amount}|${c.date}|${i}`)}`; changed = true; }
+    });
   });
   if (changed) saveData();
 }
@@ -361,7 +374,7 @@ function deletePayment(debtId, paymentId, index) {
     payments.splice(index, 1);
     return { ...d, payments };
   });
-  saveData();
+  saveData(); render(); // refresh the debts tab behind the history sheet too, not just the sheet
 }
 function addSavingsGoal(goal) { state.data.savingsGoals.unshift({ id: uid(), contributions: [], ...goal }); saveData(); }
 function deleteSavingsGoal(id) {
@@ -1859,12 +1872,42 @@ function submitPay(debtId) {
   payDebt(debtId, { id: uid(), amount, date });
   closeSheet(); render();
 }
+/* same amount + same date within one debt is virtually always an accidental duplicate (double
+   submit, or two devices that each independently backfilled a different id for what was really
+   the same legacy entry — see migrateAddMissingIds) rather than two genuine separate payments. */
+function findDuplicatePayments(payments) {
+  const groups = {};
+  (payments || []).forEach((p) => {
+    const key = `${p.amount}|${p.date}`;
+    (groups[key] = groups[key] || []).push(p);
+  });
+  const extras = [];
+  Object.values(groups).forEach((group) => { if (group.length > 1) extras.push(...group.slice(1)); });
+  return extras;
+}
+function mergeDuplicatePayments(debtId) {
+  const d = state.data.debts.find((x) => x.id === debtId);
+  if (!d) return;
+  const extras = findDuplicatePayments(d.payments);
+  if (!extras.length) return;
+  if (!confirm(`بيتم حذف ${extras.length} سداد مكرر (نفس المبلغ والتاريخ) والإبقاء على نسخة وحدة بس من كل واحد. تكمل؟`)) return;
+  extras.forEach((p) => markDeleted(p.id));
+  state.data.debts = state.data.debts.map((x) => (x.id === debtId ? { ...x, payments: (x.payments || []).filter((p) => !extras.includes(p)) } : x));
+  saveData(); render(); // refresh the debts tab behind the sheet too, not just the sheet
+  openDebtHistorySheet(debtId);
+}
 function openDebtHistorySheet(debtId) {
   const d = state.data.debts.find((x) => x.id === debtId);
   if (!d) return;
   const payments = (d.payments || []).map((p, i) => ({ ...p, __idx: i })).sort((a, b) => (a.date < b.date ? 1 : -1));
+  const duplicateCount = findDuplicatePayments(d.payments).length;
   const body = `
     ${d.date ? `<div style="font-size:13px;color:${COLORS.sub};margin-bottom:14px">تاريخ الدين: ${d.date}</div>` : ""}
+    ${duplicateCount ? `
+    <div class="card" style="background:${COLORS.dangerBg};margin-bottom:14px">
+      <div style="font-size:13px;color:${COLORS.danger};font-weight:700;margin-bottom:8px">⚠️ فيه ${duplicateCount} سداد مكرر (نفس المبلغ والتاريخ)</div>
+      <button class="btn btn-block" style="background:${COLORS.danger};color:#fff;font-size:13px" onclick='mergeDuplicatePayments(${JSON.stringify(debtId)})'>دمج المكررات — الإبقاء على نسخة وحدة بس</button>
+    </div>` : ""}
     ${!payments.length ? `<div class="empty-state">ما سددت شي بعد على هذا الدين</div>` : payments.map((p) => `
       <div class="tx-row">
         <div class="tx-main"><div class="tx-title">سداد</div><div class="tx-sub">${p.date}</div></div>
