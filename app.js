@@ -625,7 +625,7 @@ function categoryPieHTML(spentMap) {
       </div>
       <div class="pie-legend">
         ${entries.map((c) => `
-          <div class="pie-legend-row">
+          <div class="pie-legend-row" onclick='openCategoryExpensesSheet(${JSON.stringify(c.id)})' style="cursor:pointer">
             <span class="pie-dot" style="background:${c.color}"></span>
             <span class="pie-legend-name">${esc(c.name)}</span>
             <span class="pie-legend-amt">${fmt(c.spent)} ر.س · ${fmt(total > 0 ? (c.spent / total) * 100 : 0)}%</span>
@@ -1009,13 +1009,18 @@ function categoriesHTML() {
 function openCategoryExpensesSheet(catId) {
   const cat = state.data.categories.find((c) => c.id === catId);
   if (!cat) return;
-  const items = state.data.expenses.filter((e) => e.categoryId === catId).slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+  // scoped to the currently viewed month/cycle, same as the "spent" figure shown on the category
+  // card itself — showing all-time history here made that number impossible to reconcile against
+  // what's actually listed.
+  const items = state.data.expenses
+    .filter((e) => e.categoryId === catId && dateInCycle(e.date, state.month))
+    .slice().sort((a, b) => (a.date < b.date ? 1 : -1));
   const total = items.reduce((s, e) => s + e.amount, 0);
   const body = `
     <div style="font-size:13px;color:${COLORS.sub};margin-bottom:14px;line-height:1.8">
       إجمالي المصاريف: <strong style="color:${COLORS.ink}">${fmt(total)} ر.س</strong> · ${items.length} عملية
     </div>
-    ${!items.length ? `<div class="empty-state">ما فيه مصاريف مسجلة تحت هذي الفئة بعد</div>` : ""}
+    ${!items.length ? `<div class="empty-state">ما فيه مصاريف مسجلة تحت هذي الفئة خلال ${esc(monthLabel(state.month))}</div>` : ""}
     ${items.map((e) => `
       <div class="tx-row">
         <div class="tx-main">
@@ -1027,7 +1032,7 @@ function openCategoryExpensesSheet(catId) {
         <button class="btn btn-ghost" onclick='deleteExpenseFromCategorySheet(${JSON.stringify(e.id)},${JSON.stringify(catId)})'>${icon("trash", COLORS.danger, 13)}</button>
       </div>`).join("")}
   `;
-  openSheetShell(cat.name, body);
+  openSheetShell(`${cat.name} — ${monthLabel(state.month)}`, body);
 }
 function deleteExpenseFromCategorySheet(id, catId) {
   deleteExpense(id);
