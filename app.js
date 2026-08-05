@@ -1006,6 +1006,47 @@ function categoriesHTML() {
 }
 
 /* -- tapping a category card shows what's actually under it, newest first -- */
+/* the merchant isn't a structured field — bank-SMS-imported expenses just embed it in the note
+   as "رسالة بنك: <merchant>"; manual entries fall back to whatever note text was typed, or an
+   explicit bucket when there's nothing to group by. */
+function expenseMerchant(e) {
+  const prefix = "رسالة بنك: ";
+  if (e.note && e.note.startsWith(prefix)) return e.note.slice(prefix.length).trim() || "بدون تفاصيل";
+  return e.note && e.note.trim() ? e.note.trim() : "بدون تفاصيل";
+}
+const MERCHANT_CHART_PALETTE = [COLORS.primary, "#C97B3D", "#3E7C5A", "#8C5B8F", "#B3483B", "#3E6B8A", COLORS.warn, COLORS.sub];
+function categoryMerchantChartHTML(items) {
+  const map = {};
+  items.forEach((e) => { const m = expenseMerchant(e); map[m] = (map[m] || 0) + e.amount; });
+  const entries = Object.entries(map).sort((a, b) => b[1] - a[1]);
+  if (entries.length <= 1) return ""; // nothing to compare against
+  const total = entries.reduce((s, [, amt]) => s + amt, 0);
+  let cursor = 0;
+  const stops = entries.map(([, amt], i) => {
+    const start = (cursor / total) * 100;
+    cursor += amt;
+    const end = (cursor / total) * 100;
+    return `${MERCHANT_CHART_PALETTE[i % MERCHANT_CHART_PALETTE.length]} ${start}% ${end}%`;
+  }).join(", ");
+  const top = entries[0];
+  return `
+    <div class="card" style="margin-bottom:14px">
+      <div class="section-title" style="margin-top:0">التوزيع حسب الجهة</div>
+      <div style="font-size:12.5px;color:${COLORS.sub};margin-bottom:10px">الأكثر إنفاقاً: <strong style="color:${COLORS.ink}">${esc(top[0])}</strong> — ${fmt(top[1])} ر.س</div>
+      <div class="pie-wrap">
+        <div class="pie-donut" style="background:conic-gradient(${stops})"></div>
+        <div class="pie-center"><div class="pie-total">${fmt(total)}</div><div class="pie-total-sub">ر.س</div></div>
+      </div>
+      <div class="pie-legend">
+        ${entries.map(([name, amt], i) => `
+          <div class="pie-legend-row">
+            <span class="pie-dot" style="background:${MERCHANT_CHART_PALETTE[i % MERCHANT_CHART_PALETTE.length]}"></span>
+            <span class="pie-legend-name">${esc(name)}</span>
+            <span class="pie-legend-amt">${fmt(amt)} ر.س · ${fmt(total > 0 ? (amt / total) * 100 : 0)}%</span>
+          </div>`).join("")}
+      </div>
+    </div>`;
+}
 function openCategoryExpensesSheet(catId) {
   const cat = state.data.categories.find((c) => c.id === catId);
   if (!cat) return;
@@ -1020,6 +1061,7 @@ function openCategoryExpensesSheet(catId) {
     <div style="font-size:13px;color:${COLORS.sub};margin-bottom:14px;line-height:1.8">
       إجمالي المصاريف: <strong style="color:${COLORS.ink}">${fmt(total)} ر.س</strong> · ${items.length} عملية
     </div>
+    ${categoryMerchantChartHTML(items)}
     ${!items.length ? `<div class="empty-state">ما فيه مصاريف مسجلة تحت هذي الفئة خلال ${esc(monthLabel(state.month))}</div>` : ""}
     ${items.map((e) => `
       <div class="tx-row">
