@@ -80,11 +80,19 @@ function mergeById(localArr, cloudArr, mergeSub) {
   });
   return Array.from(map.values());
 }
+/* keyed by content (type+amount+date), not id: these sub-lists (debt payments, savings
+   contributions, card entries) originally had no id at all, and got one backfilled later. Any
+   two copies of "the same" entry that diverged before that backfill — different devices/sessions
+   assigning different ids to what was really one duplicate — would never match on id, so an
+   id-based dedup here would keep reuniting them on every sync forever no matter how many times a
+   local copy gets cleaned up, since Firestore still holds the other id'd copies. Content is a
+   reliable enough identity for these specific sub-lists: a genuinely separate payment of the same
+   amount on the same day is rare, and the schema has no other field to distinguish it anyway. */
 function mergeSubList(localSub, cloudSub) {
   const seen = new Set();
   const out = [];
   [...(localSub || []), ...(cloudSub || [])].forEach((entry) => {
-    const key = entry.id || JSON.stringify(entry);
+    const key = `${entry.type || ""}|${entry.amount}|${entry.date}`;
     if (seen.has(key)) return;
     seen.add(key);
     out.push(entry);
