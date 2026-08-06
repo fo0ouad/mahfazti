@@ -1311,13 +1311,76 @@ function reportsHTML() {
   const view = window.__reportView || "month";
   return `
     <div class="report-toggle" style="margin:16px 0 4px">
+      <button class="${view === "week" ? "active" : ""}" onclick="setReportView('week')">أسبوعي</button>
       <button class="${view === "month" ? "active" : ""}" onclick="setReportView('month')">شهري</button>
       <button class="${view === "year" ? "active" : ""}" onclick="setReportView('year')">سنوي</button>
     </div>
-    ${view === "month" ? monthReportHTML() : yearReportHTML()}
+    ${view === "week" ? weekReportHTML() : view === "month" ? monthReportHTML() : yearReportHTML()}
   `;
 }
 function setReportView(v) { window.__reportView = v; render(); }
+
+/* plain calendar weeks (Sunday–Saturday), deliberately independent of the financial month
+   cycle's start day — the weekly report is meant to track a normal week, not whatever day the
+   user's cycle happens to start on. */
+function shortDateLabel(d) { return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
+function weekRangeOffset(offsetWeeks) {
+  const start = new Date(todayISO() + "T00:00:00");
+  start.setDate(start.getDate() - start.getDay() + offsetWeeks * 7);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7);
+  return { start, end };
+}
+function expensesInRange(start, end) {
+  return state.data.expenses.filter((e) => { const d = new Date(e.date + "T00:00:00"); return d >= start && d < end; });
+}
+function weekReportHTML() {
+  const thisWeek = weekRangeOffset(0);
+  const lastWeek = weekRangeOffset(-1);
+  const thisWeekExpenses = expensesInRange(thisWeek.start, thisWeek.end);
+  const lastWeekExpenses = expensesInRange(lastWeek.start, lastWeek.end);
+  const thisTotal = thisWeekExpenses.reduce((s, e) => s + e.amount, 0);
+  const lastTotal = lastWeekExpenses.reduce((s, e) => s + e.amount, 0);
+  const delta = thisTotal - lastTotal;
+  const deltaPct = lastTotal > 0 ? (Math.abs(delta) / lastTotal) * 100 : (thisTotal > 0 ? 100 : 0);
+  // trailing 4 fully-elapsed weeks (excludes the current, still in-progress one) so the average
+  // isn't skewed by a partial week
+  const trailing = [-4, -3, -2, -1].map((off) => weekRangeOffset(off));
+  const avgWeekly = trailing.reduce((s, w) => s + expensesInRange(w.start, w.end).reduce((ss, e) => ss + e.amount, 0), 0) / trailing.length;
+
+  const catThis = {}; thisWeekExpenses.forEach((e) => { catThis[e.categoryId] = (catThis[e.categoryId] || 0) + e.amount; });
+  const catLast = {}; lastWeekExpenses.forEach((e) => { catLast[e.categoryId] = (catLast[e.categoryId] || 0) + e.amount; });
+  const catRows = state.data.categories
+    .map((c) => ({ ...c, cur: catThis[c.id] || 0, prev: catLast[c.id] || 0 }))
+    .filter((c) => c.cur > 0 || c.prev > 0)
+    .sort((a, b) => b.cur - a.cur);
+
+  return `
+    <div class="card">
+      <div class="section-title" style="margin-top:0">هذا الأسبوع (${shortDateLabel(thisWeek.start)} – ${shortDateLabel(new Date(thisWeek.end - 86400000))})</div>
+      <div style="font-family:'Cairo',sans-serif;font-weight:800;font-size:26px">${fmt(thisTotal)} <small style="font-size:13px;color:${COLORS.sub};font-weight:500">ر.س</small></div>
+      <div style="font-size:13px;margin-top:6px;color:${delta > 0 ? COLORS.danger : delta < 0 ? COLORS.success : COLORS.sub}">
+        ${delta === 0 ? "نفس مصروف الأسبوع الماضي" : `${delta > 0 ? "▲" : "▼"} ${fmt(Math.abs(delta))} ر.س (${fmt(deltaPct)}%) ${delta > 0 ? "أكثر" : "أقل"} من الأسبوع الماضي`}
+      </div>
+      <div style="font-size:12.5px;color:${COLORS.sub};margin-top:10px">الأسبوع الماضي: ${fmt(lastTotal)} ر.س</div>
+      <div style="font-size:12.5px;color:${COLORS.sub};margin-top:4px">معدل الصرف الأسبوعي (متوسط آخر 4 أسابيع): <strong style="color:${COLORS.ink}">${fmt(avgWeekly)} ر.س</strong></div>
+    </div>
+    <div class="section-title">الفئات — هذا الأسبوع مقابل الماضي</div>
+    ${!catRows.length ? `<div class="empty-state">ماعندك مصاريف مسجلة هذا الأسبوع أو الأسبوع الماضي</div>` : catRows.map((c) => {
+      const d = c.cur - c.prev;
+      return `
+        <div class="cat-card">
+          <div class="row" style="margin-bottom:6px">
+            ${iconBadge(c.icon, c.color, 14)}
+            <div style="flex:1"><div class="cat-top"><span class="cat-name">${esc(c.name)}</span><span class="cat-amounts">${fmt(c.cur)} ر.س</span></div></div>
+          </div>
+          <div style="font-size:12px;color:${d > 0 ? COLORS.danger : d < 0 ? COLORS.success : COLORS.sub}">
+            ${d === 0 ? "نفس الأسبوع الماضي" : `${d > 0 ? "▲" : "▼"} ${fmt(Math.abs(d))} ر.س عن الأسبوع الماضي (${fmt(c.prev)} ر.س)`}
+          </div>
+        </div>`;
+    }).join("")}
+  `;
+}
 
 function monthReportHTML() {
   const spentMap = spentByCategory();
