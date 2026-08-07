@@ -203,6 +203,23 @@ function grocerySpentByStore(items) {
   items.forEach((it) => { map[it.store] = (map[it.store] || 0) + it.totalPrice; });
   return map;
 }
+/* items have no explicit invoice/receipt id — grouping by same store+date is a reliable enough
+   stand-in, since that's exactly how a single receipt (entered via the invoice form or a bulk
+   paste) ends up stored: one store, one date, several items. */
+function groceryInvoicesFromItems(items) {
+  const map = {};
+  items.forEach((it) => {
+    const key = `${it.store}|${it.date}`;
+    if (!map[key]) map[key] = { store: it.store, date: it.date, items: [], total: 0 };
+    map[key].items.push(it);
+    map[key].total += it.totalPrice;
+  });
+  return Object.values(map).sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+function groceryMonthLabelPlain(ym) {
+  const [y, m] = ym.split("-").map(Number);
+  return `${MONTH_NAMES[m - 1]} ${y}`;
+}
 function groceryProductStats() {
   const map = {};
   groceryData.items.forEach((it) => {
@@ -223,7 +240,7 @@ function findLastGroceryEntry(product) {
 }
 
 /* ---------------- shared donut chart (reused for category + could reuse elsewhere) ---------------- */
-function donutChartHTML(entries, total, titleText) {
+function donutChartHTML(entries, total, titleText, onRowClick) {
   if (!entries.length || total <= 0) {
     return `<div class="card"><div class="section-title" style="margin-top:0">${titleText}</div><div class="empty-state" style="padding:20px 0">لا يوجد بيانات بعد</div></div>`;
   }
@@ -243,7 +260,7 @@ function donutChartHTML(entries, total, titleText) {
       </div>
       <div class="pie-legend">
         ${entries.map((e) => `
-          <div class="pie-legend-row">
+          <div class="pie-legend-row" ${onRowClick ? `onclick='${onRowClick}(${JSON.stringify(e.label)})' style="cursor:pointer"` : ""}>
             <span class="pie-dot" style="background:${e.color}"></span>
             <span class="pie-legend-name">${esc(e.label)}</span>
             <span class="pie-legend-amt">${fmt(e.amount)} ر.س · ${fmt(total > 0 ? (e.amount / total) * 100 : 0)}%</span>
@@ -323,7 +340,7 @@ function groceryOverviewHTML() {
     .sort((a, b) => b.amount - a.amount);
   const storeMap = grocerySpentByStore(items);
   const storeEntries = Object.entries(storeMap).sort((a, b) => b[1] - a[1]);
-  const recent = groceryData.items.slice(0, 5);
+  const invoices = groceryInvoicesFromItems(items);
   return `
     ${!groceryData.items.length ? `
     <div class="card" style="background:${COLORS.secondary};color:#fff">
@@ -337,7 +354,7 @@ function groceryOverviewHTML() {
       <div style="font-size:12px;color:${COLORS.ink};margin-top:4px;opacity:.7">${items.length} عملية شراء</div>
     </div>
     ${groceryBudgetCardHTML(total)}
-    ${donutChartHTML(catEntries, total, "التوزيع حسب الفئة")}
+    ${donutChartHTML(catEntries, total, "التوزيع حسب الفئة", "openGroceryCategoryItemsSheet")}
     ${storeEntries.length ? `
     <div class="card">
       <div class="section-title" style="margin-top:0">التوزيع حسب المتجر</div>
@@ -350,23 +367,72 @@ function groceryOverviewHTML() {
           </div>`).join("")}
       </div>
     </div>` : ""}
-    ${recent.length ? `
-    <div class="section-title">آخر المشتريات</div>
-    ${recent.map(groceryItemRowHTML).join("")}
+    ${invoices.length ? `
+    <div class="section-title">فواتير هذا الشهر</div>
+    ${invoices.map((inv) => `
+      <div class="tx-row" onclick='openGroceryInvoiceDetailSheet(${JSON.stringify(inv.store)},${JSON.stringify(inv.date)})' style="cursor:pointer">
+        ${iconBadge("receipt", COLORS.secondary, 14)}
+        <div class="tx-main">
+          <div class="tx-title">${esc(inv.store)}</div>
+          <div class="tx-sub">${inv.date} · ${inv.items.length} صنف</div>
+        </div>
+        <span class="tx-amount">${fmt2(inv.total)}</span>
+      </div>`).join("")}
     ` : ""}
   `;
 }
-function groceryItemRowHTML(it) {
-  const c = GROCERY_CATEGORY_COLORS[it.category] || COLORS.sub;
-  return `
-    <div class="tx-row">
-      <div class="icon-badge" style="width:28px;height:28px;background:${c}1F">${icon("shoppingBag", c, 14)}</div>
-      <div class="tx-main">
-        <div class="tx-title">${esc(it.product)}</div>
-        <div class="tx-sub">${it.date} · ${esc(it.store)} · ${esc(it.category)}</div>
-      </div>
-      <span class="tx-amount">${fmt2(it.totalPrice)}</span>
-    </div>`;
+/* -- one invoice's items (store+date group — see groceryInvoicesFromItems) -- */
+function openGroceryInvoiceDetailSheet(store, date) {
+  const items = groceryData.items.filter((it) => it.store === store && it.date === date);
+  const total = items.reduce((s, it) => s + it.totalPrice, 0);
+  const body = `
+    <div style="font-size:13px;color:${COLORS.sub};margin-bottom:14px;line-height:1.8">
+      إجمالي الفاتورة: <strong style="color:${COLORS.ink}">${fmt2(total)} ر.س</strong> · ${items.length} صنف
+    </div>
+    ${!items.length ? `<div class="empty-state">ما فيه أصناف بهذي الفاتورة</div>` : items.map((it) => `
+      <div class="tx-row">
+        ${iconBadge("shoppingBag", GROCERY_CATEGORY_COLORS[it.category] || COLORS.sub, 14)}
+        <div class="tx-main">
+          <div class="tx-title">${esc(it.product)}</div>
+          <div class="tx-sub">${esc(it.category)} · ${it.quantity} ${esc(it.unit)}</div>
+        </div>
+        <span class="tx-amount">${fmt2(it.totalPrice)}</span>
+        <button class="btn btn-ghost" onclick='closeSheet();openAddGroceryItemSheet(${JSON.stringify(it.id)})'>${icon("pencil", COLORS.sub, 13)}</button>
+        <button class="btn btn-ghost" onclick='deleteGroceryItemFromInvoiceSheet(${JSON.stringify(it.id)},${JSON.stringify(store)},${JSON.stringify(date)})'>${icon("trash", COLORS.danger, 13)}</button>
+      </div>`).join("")}
+  `;
+  openSheetShell(`فاتورة ${store} — ${date}`, body);
+}
+function deleteGroceryItemFromInvoiceSheet(id, store, date) {
+  deleteGroceryItem(id);
+  openGroceryInvoiceDetailSheet(store, date);
+}
+/* -- items under one category, this month (tapping a donut-chart legend row) -- */
+function openGroceryCategoryItemsSheet(category) {
+  const ym = todayISO().slice(0, 7);
+  const items = groceryMonthItems(ym).filter((it) => it.category === category).slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+  const total = items.reduce((s, it) => s + it.totalPrice, 0);
+  const body = `
+    <div style="font-size:13px;color:${COLORS.sub};margin-bottom:14px;line-height:1.8">
+      إجمالي المصاريف: <strong style="color:${COLORS.ink}">${fmt2(total)} ر.س</strong> · ${items.length} صنف
+    </div>
+    ${!items.length ? `<div class="empty-state">ما فيه مشتريات مسجلة تحت هذي الفئة هذا الشهر</div>` : items.map((it) => `
+      <div class="tx-row">
+        ${iconBadge("shoppingBag", GROCERY_CATEGORY_COLORS[category] || COLORS.sub, 14)}
+        <div class="tx-main">
+          <div class="tx-title">${esc(it.product)}</div>
+          <div class="tx-sub">${it.date} · ${esc(it.store)} · ${it.quantity} ${esc(it.unit)}</div>
+        </div>
+        <span class="tx-amount">${fmt2(it.totalPrice)}</span>
+        <button class="btn btn-ghost" onclick='closeSheet();openAddGroceryItemSheet(${JSON.stringify(it.id)})'>${icon("pencil", COLORS.sub, 13)}</button>
+        <button class="btn btn-ghost" onclick='deleteGroceryItemFromCategorySheet(${JSON.stringify(it.id)},${JSON.stringify(category)})'>${icon("trash", COLORS.danger, 13)}</button>
+      </div>`).join("")}
+  `;
+  openSheetShell(`${category} — ${groceryMonthLabelPlain(ym)}`, body);
+}
+function deleteGroceryItemFromCategorySheet(id, category) {
+  deleteGroceryItem(id);
+  openGroceryCategoryItemsSheet(category);
 }
 
 let groceryProductQuery = "";
