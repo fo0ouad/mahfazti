@@ -81,7 +81,7 @@ function fmt2(n) {
   return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
 }
 
-let groceryData = { items: [], settings: { monthlyBudget: 0 }, deletedIds: [] };
+let groceryData = { items: [], settings: { monthlyBudget: 0 }, deletedIds: [], shoppingList: [] };
 let groceryTab = "overview";
 
 function loadGroceryData() {
@@ -93,6 +93,7 @@ function loadGroceryData() {
         items: parsed.items || [],
         settings: { monthlyBudget: 0, stores: [...GROCERY_STORES], ...(parsed.settings || {}) },
         deletedIds: parsed.deletedIds || [],
+        shoppingList: parsed.shoppingList || [],
       };
     }
   } catch (e) { /* keep defaults */ }
@@ -164,6 +165,30 @@ function deleteGroceryItem(id) {
   if (!confirm("تحذف هذا العنصر؟")) return;
   groceryData.items = groceryData.items.filter((x) => x.id !== id);
   markGroceryDeleted(id);
+  saveGroceryData(); renderGroceries();
+}
+/* -- shopping list: what to buy next time, separate from the purchase history above -- */
+function addShoppingItem(name) {
+  if (!name.trim()) return;
+  groceryData.shoppingList = groceryData.shoppingList || [];
+  groceryData.shoppingList.unshift({ id: uid(), name: name.trim(), checked: false });
+  saveGroceryData();
+}
+function toggleShoppingItem(id) {
+  groceryData.shoppingList = (groceryData.shoppingList || []).map((it) => (it.id === id ? { ...it, checked: !it.checked } : it));
+  saveGroceryData(); renderGroceries();
+}
+function deleteShoppingItem(id) {
+  groceryData.shoppingList = (groceryData.shoppingList || []).filter((it) => it.id !== id);
+  markGroceryDeleted(id);
+  saveGroceryData(); renderGroceries();
+}
+function clearCheckedShoppingItems() {
+  const checked = (groceryData.shoppingList || []).filter((it) => it.checked);
+  if (!checked.length) return;
+  if (!confirm(`تحذف ${checked.length} عنصر متعلّم كمشترى من القائمة؟`)) return;
+  checked.forEach((it) => markGroceryDeleted(it.id));
+  groceryData.shoppingList = (groceryData.shoppingList || []).filter((it) => !it.checked);
   saveGroceryData(); renderGroceries();
 }
 /* ---------------- derived ---------------- */
@@ -240,6 +265,7 @@ function groceryHeaderHTML() {
 function groceryNavHTML() {
   const tabs = [
     { id: "overview", label: "نظرة عامة", icon: "wallet" },
+    { id: "shopping", label: "قائمة التسوق", icon: "clipboard" },
     { id: "products", label: "المنتجات", icon: "shoppingBasket" },
     { id: "history", label: "السجل", icon: "receipt" },
   ];
@@ -453,12 +479,84 @@ function exportGroceryCSV() {
   URL.revokeObjectURL(url);
 }
 
-const GROCERY_TAB_TITLES = { overview: "نظرة عامة", products: "المنتجات", history: "سجل المشتريات" };
+/* -- shopping list: what to buy next time — quick-add items, autocomplete against past
+   purchases, and surface each item's last known price so you know roughly what to expect
+   before you're even at the store -- */
+function groceryShoppingListHTML() {
+  const items = groceryData.shoppingList || [];
+  const unchecked = items.filter((it) => !it.checked);
+  const checked = items.filter((it) => it.checked);
+  return `
+    <div class="field" style="position:relative;margin-top:16px;margin-bottom:10px">
+      <input id="shop-input" type="text" autocomplete="off" placeholder="أضف عنصر... مثال: حليب"
+        oninput="shoppingItemSearch(this.value)" onkeydown="if(event.key==='Enter'){submitShoppingItem();}"/>
+      <div id="shop-suggestions" class="grocery-suggestions"></div>
+    </div>
+    <button class="btn btn-primary btn-block" style="margin-bottom:16px" onclick="submitShoppingItem()">${icon("plus", "#fff", 16)} إضافة للقائمة</button>
+    ${!items.length ? `<div class="empty-state">القائمة فاضية — أضف أول عنصر تحتاجونه</div>` : ""}
+    ${unchecked.length ? `
+      <div class="section-title" style="margin-top:0">تبي تشتريه (${unchecked.length})</div>
+      ${unchecked.map(shoppingItemRowHTML).join("")}
+    ` : ""}
+    ${checked.length ? `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:18px">
+        <div class="section-title" style="margin:0">تم شراؤه (${checked.length})</div>
+        <button class="btn btn-ghost" style="width:auto;height:auto;padding:6px 12px;font-size:12px" onclick="clearCheckedShoppingItems()">${icon("trash", COLORS.danger, 13)} مسح المشترى</button>
+      </div>
+      ${checked.map(shoppingItemRowHTML).join("")}
+    ` : ""}
+  `;
+}
+function shoppingItemRowHTML(it) {
+  const last = findLastGroceryEntry(it.name);
+  return `
+    <div class="tx-row" style="opacity:${it.checked ? 0.55 : 1}">
+      <button class="btn btn-ghost" onclick='toggleShoppingItem(${JSON.stringify(it.id)})' style="flex-shrink:0" title="${it.checked ? "رجّعه للقائمة" : "علّمه كمشترى"}">
+        ${icon(it.checked ? "check" : "circle", it.checked ? COLORS.success : COLORS.sub, 16)}
+      </button>
+      <div class="tx-main">
+        <div class="tx-title" style="${it.checked ? "text-decoration:line-through" : ""}">${esc(it.name)}</div>
+        <div class="tx-sub">${last ? `آخر سعر ${fmt2(last.unitPrice)} ر.س/${esc(last.unit)} · ${esc(last.store)}` : "أول مرة تشتريه"}</div>
+      </div>
+      <button class="btn btn-ghost" onclick='deleteShoppingItem(${JSON.stringify(it.id)})'>${icon("trash", COLORS.danger, 13)}</button>
+    </div>`;
+}
+function shoppingItemSearch(query) {
+  const box = document.getElementById("shop-suggestions");
+  if (!box) return;
+  const q = query.trim().toLowerCase();
+  if (!q) { box.innerHTML = ""; return; }
+  const matches = groceryProductStats().filter((p) => p.product.toLowerCase().includes(q)).slice(0, 6);
+  box.innerHTML = matches.map((p) => `
+    <div class="grocery-suggestion-item" onmousedown='event.preventDefault();pickShoppingItem(${JSON.stringify(p.product)})'>
+      <span>${esc(p.product)}</span>
+      <span style="color:${COLORS.sub};font-size:11px;white-space:nowrap">${fmt2(p.last.unitPrice)} ر.س/${esc(p.last.unit)}</span>
+    </div>`).join("");
+}
+function pickShoppingItem(name) {
+  document.getElementById("shop-input").value = name;
+  document.getElementById("shop-suggestions").innerHTML = "";
+  submitShoppingItem();
+}
+function submitShoppingItem() {
+  const input = document.getElementById("shop-input");
+  const name = input.value.trim();
+  if (!name) return;
+  addShoppingItem(name);
+  input.value = "";
+  const box = document.getElementById("shop-suggestions");
+  if (box) box.innerHTML = "";
+  renderGroceries();
+  document.getElementById("shop-input").focus();
+}
+
+const GROCERY_TAB_TITLES = { overview: "نظرة عامة", shopping: "قائمة التسوق", products: "المنتجات", history: "سجل المشتريات" };
 
 function renderGroceries() {
   const app = document.getElementById("app");
   let body = "";
   if (groceryTab === "overview") body = groceryOverviewHTML();
+  else if (groceryTab === "shopping") body = groceryShoppingListHTML();
   else if (groceryTab === "products") body = groceryProductsHTML();
   else if (groceryTab === "history") body = groceryHistoryHTML();
   app.innerHTML = `

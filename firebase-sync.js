@@ -133,6 +133,7 @@ function mergeGroceryState(local, cloud) {
   const deletedIds = mergeIdList(local.deletedIds, cloud.deletedIds);
   return {
     items: prune(mergeById(local.items, cloud.items), deletedIds),
+    shoppingList: prune(mergeById(local.shoppingList, cloud.shoppingList), deletedIds),
     settings: { ...(local.settings || {}), ...(cloud.settings || {}) },
     deletedIds,
   };

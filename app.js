@@ -43,6 +43,7 @@ const ICONS = {
   shoppingBag: (c, s) => svg(`<path d="M6 8h12l1 12H5L6 8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>`, c, s),
   heartPulse: (c, s) => svg(`<path d="M20.8 8.6a4.6 4.6 0 0 0-7.8-3.3L12 6.3l-1-1a4.6 4.6 0 0 0-7.8 3.3c0 2.4 1.6 4 3.2 5.6L12 20l5.6-6.1c1.6-1.6 3.2-3.2 3.2-5.3z"/><path d="M6 12h2l1.5-3L11 15l1.5-3H15"/>`, c, s),
   moreHorizontal: (c, s) => svg(`<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>`, c, s),
+  circle: (c, s) => svg(`<circle cx="12" cy="12" r="9"/>`, c, s),
   creditCard: (c, s) => svg(`<rect x="2.5" y="5" width="19" height="14" rx="2.2"/><path d="M2.5 10h19M6 15h4"/>`, c, s),
   plus: (c, s) => svg(`<path d="M12 5v14M5 12h14"/>`, c, s),
   x: (c, s) => svg(`<path d="M6 6l12 12M18 6L6 18"/>`, c, s),
